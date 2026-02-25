@@ -1,0 +1,140 @@
+<!-- templates/index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TimeSync</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>TimeSync</h1>
+    <p class="sub">
+      Save your own schedule once, save/import friend schedules, then compare quickly for meetup planning.
+    </p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>My Schedule</h2>
+
+        <label>Days</label>
+        <div class="daypick" id="a-days">
+          <label><input type="checkbox" value="Mon" checked> Mon</label>
+          <label><input type="checkbox" value="Tue"> Tue</label>
+          <label><input type="checkbox" value="Wed"> Wed</label>
+          <label><input type="checkbox" value="Thu"> Thu</label>
+          <label><input type="checkbox" value="Fri"> Fri</label>
+          <label><input type="checkbox" value="Sat"> Sat</label>
+          <label><input type="checkbox" value="Sun"> Sun</label>
+        </div>
+
+        <label>Start
+            <div class="timepick">
+              <select id="a-start-h"></select>
+              <select id="a-start-m"></select>
+              <select id="a-start-ap"></select>
+            </div>
+          </label>
+          
+          <label>End
+            <div class="timepick">
+              <select id="a-end-h"></select>
+              <select id="a-end-m"></select>
+              <select id="a-end-ap"></select>
+            </div>
+          </label>
+
+        <button id="a-add" type="button">Add Busy Block</button>
+        <ul id="a-list"></ul>
+      </section>
+
+      <section class="card">
+        <h2>Comparison Schedule</h2>
+
+        <label for="comparison-select">Saved Comparison Schedules</label>
+        <select id="comparison-select"></select>
+
+        <div class="comparison-actions">
+          <button id="new-comparison" type="button">New Comparison</button>
+          <button id="save-comparison" type="button">Save Comparison</button>
+        </div>
+
+        <label for="comparison-name">Comparison Name</label>
+        <input id="comparison-name" type="text" placeholder="e.g. Alex" />
+        <div id="comparison-status" class="muted">No saved comparison selected.</div>
+
+        <label>Days</label>
+        <div class="daypick" id="b-days">
+          <label><input type="checkbox" value="Mon" checked> Mon</label>
+          <label><input type="checkbox" value="Tue"> Tue</label>
+          <label><input type="checkbox" value="Wed"> Wed</label>
+          <label><input type="checkbox" value="Thu"> Thu</label>
+          <label><input type="checkbox" value="Fri"> Fri</label>
+          <label><input type="checkbox" value="Sat"> Sat</label>
+          <label><input type="checkbox" value="Sun"> Sun</label>
+        </div>
+
+        <label>Start
+            <div class="timepick">
+              <select id="b-start-h"></select>
+              <select id="b-start-m"></select>
+              <select id="b-start-ap"></select>
+            </div>
+          </label>
+          
+          <label>End
+            <div class="timepick">
+              <select id="b-end-h"></select>
+              <select id="b-end-m"></select>
+              <select id="b-end-ap"></select>
+            </div>
+          </label>
+
+        <button id="b-add" type="button">Add Busy Block</button>
+        <ul id="b-list"></ul>
+      </section>
+    </div>
+
+    <div class="actions">
+      <div class="persist">
+        <label for="schedule-key">My User ID</label>
+        <input id="schedule-key" type="text" placeholder="e.g. caden-maki" />
+        <div class="persist-actions">
+          <button id="load-profile" type="button">Load Profile</button>
+          <button id="save-profile" type="button">Save Profile</button>
+        </div>
+
+        <label for="friend-user-key">Import Friend by User ID</label>
+        <div class="persist-actions">
+          <input id="friend-user-key" type="text" placeholder="friend's user id" />
+          <button id="import-friend" type="button">Import Friend Schedule</button>
+        </div>
+
+        <div id="persist-status" class="muted">Not loaded yet.</div>
+        <div id="import-status" class="muted"></div>
+      </div>
+      <button id="compare" type="button">Compare</button>
+    </div>
+
+    <section class="card">
+      <h2>Weekly View</h2>
+      <div id="output" class="output muted">No results yet.</div>
+    </section>
+  </div>
+
+  <div id="comparison-name-modal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="comparison-name-modal-title">
+      <h3 id="comparison-name-modal-title">Name Comparison Schedule</h3>
+      <p id="comparison-name-modal-message" class="muted">Enter a name for this comparison schedule.</p>
+      <input id="comparison-name-modal-input" type="text" placeholder="e.g. Alex" />
+      <div class="modal-actions">
+        <button id="comparison-name-modal-cancel" type="button" class="modal-cancel">Cancel</button>
+        <button id="comparison-name-modal-confirm" type="button" class="modal-confirm">Enter</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
