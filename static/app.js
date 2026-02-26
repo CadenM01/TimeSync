@@ -265,21 +265,67 @@ function addBusy(prefix, arr, listId, onChange) {
 function renderBusyList(arr, listId, onChange) {
   const ul = document.getElementById(listId);
   ul.innerHTML = "";
-  arr.forEach((b, i) => {
-    const li = document.createElement("li");
-    li.textContent = `${b.day} ${formatRange12(b.start, b.end)}`;
+  if (!arr.length) {
+    const empty = document.createElement("li");
+    empty.className = "busy-empty muted";
+    empty.textContent = "No busy blocks added yet.";
+    ul.appendChild(empty);
+    return;
+  }
 
-    const del = document.createElement("button");
-    del.textContent = "x";
-    del.className = "del";
-    del.onclick = () => {
-      arr.splice(i, 1);
-      renderBusyList(arr, listId, onChange);
-      if (onChange) onChange();
-    };
+  const byDay = new Map(DAYS.map((day) => [day, []]));
+  arr.forEach((b, idx) => {
+    if (!byDay.has(b.day)) return;
+    byDay.get(b.day).push({ ...b, idx });
+  });
 
-    li.appendChild(del);
-    ul.appendChild(li);
+  DAYS.forEach((day) => {
+    const items = byDay.get(day);
+    if (!items.length) return;
+
+    items.sort((a, b) => {
+      if (a.start !== b.start) return a.start.localeCompare(b.start);
+      return a.end.localeCompare(b.end);
+    });
+
+    const group = document.createElement("li");
+    group.className = "busy-day-group";
+
+    const header = document.createElement("div");
+    header.className = "busy-day-header";
+    header.innerHTML = `
+      <span class="busy-day-name">${day}</span>
+      <span class="busy-day-count">${items.length} block${items.length === 1 ? "" : "s"}</span>
+    `;
+    group.appendChild(header);
+
+    const rows = document.createElement("div");
+    rows.className = "busy-day-items";
+
+    items.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "busy-row";
+
+      const text = document.createElement("span");
+      text.className = "busy-row-time";
+      text.textContent = formatRange12(item.start, item.end);
+      row.appendChild(text);
+
+      const del = document.createElement("button");
+      del.textContent = "x";
+      del.className = "del";
+      del.onclick = () => {
+        arr.splice(item.idx, 1);
+        renderBusyList(arr, listId, onChange);
+        if (onChange) onChange();
+      };
+      row.appendChild(del);
+
+      rows.appendChild(row);
+    });
+
+    group.appendChild(rows);
+    ul.appendChild(group);
   });
 }
 
@@ -780,6 +826,7 @@ function buildCalendarHTML() {
 
   return `
     <div class="calendar">
+      <div id="best-open-slots" class="best-open-slots"></div>
       <div class="calendar-grid" style="--rows:${totalSlots}; --cols:${DAYS.length};">
         <div class="corner"></div>
         ${dayHeaders}
@@ -790,6 +837,161 @@ function buildCalendarHTML() {
       </div>
     </div>
   `;
+}
+
+function parseEventInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function collectEventLayoutState(layer) {
+  const layerRect = layer.getBoundingClientRect();
+  const entries = [];
+
+  layer.querySelectorAll(".event").forEach((el, idx) => {
+    const rect = el.getBoundingClientRect();
+    entries.push({
+      key: el.dataset.eventKey || `event-${idx}`,
+      kind: el.dataset.kind || "",
+      day: el.dataset.day || "",
+      startMin: parseEventInt(el.dataset.startMin, 0),
+      endMin: parseEventInt(el.dataset.endMin, 0),
+      left: rect.left - layerRect.left,
+      top: rect.top - layerRect.top,
+      width: rect.width,
+      height: rect.height,
+    });
+  });
+
+  const byKey = new Map();
+  entries.forEach((entry) => {
+    if (!byKey.has(entry.key)) byKey.set(entry.key, entry);
+  });
+
+  return { entries, byKey };
+}
+
+function overlapMinutes(aStart, aEnd, bStart, bEnd) {
+  return Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
+}
+
+function unionRect(entries) {
+  if (!entries.length) return null;
+  const left = Math.min(...entries.map((e) => e.left));
+  const top = Math.min(...entries.map((e) => e.top));
+  const right = Math.max(...entries.map((e) => e.left + e.width));
+  const bottom = Math.max(...entries.map((e) => e.top + e.height));
+  return {
+    left,
+    top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
+}
+
+function bestSourceRectForBusy(nextEntry, previousEntries) {
+  const candidates = previousEntries.filter((prev) => {
+    if (!prev.kind.startsWith("busy")) return false;
+    if (prev.day !== nextEntry.day) return false;
+    return overlapMinutes(prev.startMin, prev.endMin, nextEntry.startMin, nextEntry.endMin) > 0;
+  });
+
+  if (!candidates.length) return null;
+
+  if (nextEntry.kind === "busy-merged" && candidates.length > 1) {
+    return unionRect(candidates);
+  }
+
+  let best = candidates[0];
+  let bestOverlap = overlapMinutes(best.startMin, best.endMin, nextEntry.startMin, nextEntry.endMin);
+  for (let i = 1; i < candidates.length; i++) {
+    const c = candidates[i];
+    const overlap = overlapMinutes(c.startMin, c.endMin, nextEntry.startMin, nextEntry.endMin);
+    if (overlap > bestOverlap) {
+      best = c;
+      bestOverlap = overlap;
+    }
+  }
+
+  return {
+    left: best.left,
+    top: best.top,
+    width: Math.max(1, best.width),
+    height: Math.max(1, best.height),
+  };
+}
+
+function animateEventLayerTransition(layer, previousState) {
+  if (!layer || !previousState) return;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  const layerRect = layer.getBoundingClientRect();
+  const nextEntries = [];
+  layer.querySelectorAll(".event").forEach((el, idx) => {
+    const rect = el.getBoundingClientRect();
+    nextEntries.push({
+      element: el,
+      key: el.dataset.eventKey || `next-${idx}`,
+      kind: el.dataset.kind || "",
+      day: el.dataset.day || "",
+      startMin: parseEventInt(el.dataset.startMin, 0),
+      endMin: parseEventInt(el.dataset.endMin, 0),
+      left: rect.left - layerRect.left,
+      top: rect.top - layerRect.top,
+      width: rect.width,
+      height: rect.height,
+    });
+  });
+
+  nextEntries.forEach((entry) => {
+    let source = previousState.byKey.get(entry.key) || null;
+    if (!source && entry.kind.startsWith("busy")) {
+      source = bestSourceRectForBusy(entry, previousState.entries);
+    }
+
+    const el = entry.element;
+    if (typeof el.animate !== "function") return;
+
+    if (source) {
+      const dx = source.left - entry.left;
+      const dy = source.top - entry.top;
+      const sx = source.width / Math.max(1, entry.width);
+      const sy = source.height / Math.max(1, entry.height);
+
+      el.animate(
+        [
+          {
+            transformOrigin: "top left",
+            transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`,
+            opacity: 0.76,
+          },
+          {
+            transformOrigin: "top left",
+            transform: "translate(0, 0) scale(1, 1)",
+            opacity: 1,
+          },
+        ],
+        {
+          duration: 345,
+          easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+          fill: "both",
+        }
+      );
+      return;
+    }
+
+    el.animate(
+      [
+        { opacity: 0, transform: "translateY(3px) scale(0.985)" },
+        { opacity: 1, transform: "translateY(0) scale(1)" },
+      ],
+      {
+        duration: 245,
+        easing: "ease-out",
+        fill: "both",
+      }
+    );
+  });
 }
 
 function placeBlocks(blocks, className) {
@@ -818,6 +1020,11 @@ function placeBlocks(blocks, className) {
     el.className = `event ${className}`;
     el.style.gridRow = `${rowStart} / ${rowEnd}`;
     el.style.gridColumn = `${colStart} / ${colEnd}`;
+    el.dataset.eventKey = b.key ? `${className}|${b.key}` : `${className}|${b.day}|${b.start}|${b.end}`;
+    el.dataset.kind = className;
+    el.dataset.day = b.day;
+    el.dataset.startMin = String(s);
+    el.dataset.endMin = String(e);
     if (b.color) el.style.background = b.color;
     if (b.border) el.style.borderColor = b.border;
     el.title = `${b.day} ${formatRange12(b.start, b.end)}`;
@@ -896,6 +1103,109 @@ function getOpenTimeForSelection(showA, showB, sharedOverlapFree) {
   return open;
 }
 
+function formatDuration(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
+function getTopOpenSlots(openByDay, limit = 3, allowedDays = DAYS) {
+  const daySet = new Set(allowedDays);
+  const slots = [];
+
+  for (const day of DAYS) {
+    if (!daySet.has(day)) continue;
+    const daySlots = openByDay[day] || [];
+    daySlots.forEach((slot) => {
+      const startMin = toMinutes(slot.start);
+      const endMin = toMinutes(slot.end);
+      if (endMin <= startMin) return;
+      slots.push({
+        day,
+        start: slot.start,
+        end: slot.end,
+        durationMin: endMin - startMin,
+      });
+    });
+  }
+
+  slots.sort((a, b) => {
+    if (b.durationMin !== a.durationMin) return b.durationMin - a.durationMin;
+    const dayDelta = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
+    if (dayDelta !== 0) return dayDelta;
+    return a.start.localeCompare(b.start);
+  });
+
+  return slots.slice(0, limit);
+}
+
+function renderBestOpenSlots(openByDay, showA, showB) {
+  const container = document.getElementById("best-open-slots");
+  if (!container) return;
+
+  const weekdayDays = DAYS.filter((day) => day !== "Sat" && day !== "Sun");
+  let allowedDays = weekdayDays;
+
+  const mode = showA && showB
+    ? "Shared availability (weekdays)"
+    : showA
+      ? "My Schedule availability (weekdays)"
+      : showB
+        ? "Comparison Schedule availability (weekdays)"
+        : "No busy filters selected";
+
+  if (!showA && !showB) {
+    container.innerHTML = `
+      <div class="slots-head">
+        <h3>Best Open Slots</h3>
+        <span class="slots-mode">${mode}</span>
+      </div>
+      <div class="slots-empty muted">Enable My Schedule and/or Comparison Schedule to see ranked open slots.</div>
+    `;
+    return;
+  }
+
+  if (showA && showB) {
+    allowedDays = weekdayDays.filter(
+      (day) =>
+        aBusy.some((b) => b.day === day) &&
+        bBusy.some((b) => b.day === day)
+    );
+  }
+
+  const modeText = showA && showB
+    ? allowedDays.length
+      ? `Shared campus days: ${allowedDays.join(", ")}`
+      : "No shared campus weekdays detected"
+    : mode;
+
+  const topSlots = getTopOpenSlots(openByDay, 3, allowedDays);
+  const cards = topSlots.length
+    ? topSlots.map((slot, idx) => `
+      <article class="slot-card">
+        <div class="slot-rank">#${idx + 1}</div>
+        <div class="slot-day">${slot.day}</div>
+        <div class="slot-range">${formatRange12(slot.start, slot.end)}</div>
+        <div class="slot-duration">${formatDuration(slot.durationMin)}</div>
+      </article>
+    `).join("")
+    : `<div class="slots-empty muted">${
+        showA && showB
+          ? "No weekday open slots found where both users appear on campus."
+          : "No weekday open slots found in the selected time window."
+      }</div>`;
+
+  container.innerHTML = `
+    <div class="slots-head">
+      <h3>Best Open Slots</h3>
+      <span class="slots-mode">${modeText}</span>
+    </div>
+    <div class="slots-grid">${cards}</div>
+  `;
+}
+
 function getMergedBusyBlocks(aBlocks, bBlocks) {
   const byDay = Object.fromEntries(DAYS.map((d) => [d, []]));
   const combined = [...aBlocks, ...bBlocks];
@@ -916,6 +1226,7 @@ function getMergedBusyBlocks(aBlocks, bBlocks) {
         day,
         start: minutesToHHMM(m.start),
         end: minutesToHHMM(m.end),
+        key: `busy-merged|${day}|${minutesToHHMM(m.start)}|${minutesToHHMM(m.end)}`,
       });
     });
   }
@@ -938,6 +1249,7 @@ function buildGroupedBusyBlocks(blocks) {
       label: `Busy Block ${id}`,
       color: palette.fill,
       border: palette.border,
+      key: `busy-${id}|${b.day}|${b.start}|${b.end}`,
     };
   });
 }
@@ -968,19 +1280,29 @@ function placeOverlap(overlapFree) {
       const colEnd = colStart + 1;
 
       const el = document.createElement("div");
-      const showRange = durationMin >= 45;
+      const tailToEnd = eMin === dayEndMin && durationMin >= 90;
+      const headFromStart = sMin === dayStartMin;
+      const showRange = durationMin >= 55 && !tailToEnd;
       const isTiny = durationMin <= 15;
       const isCompact = !showRange && !isTiny;
-      el.className = `event overlap ${isCompact ? "compact-open-slot" : ""} ${isTiny ? "tiny-open-slot" : ""}`.trim();
+      const isMiddleGap = sMin > dayStartMin && eMin < dayEndMin;
+      const isAnimatedMid = showRange && isMiddleGap;
+      const pillText = tailToEnd ? "Open rest of day" : (durationMin < 40 ? "Open" : "Open-time");
+      el.className = `event overlap ${isCompact ? "compact-open-slot" : ""} ${isTiny ? "tiny-open-slot" : ""} ${tailToEnd ? "open-tail-slot" : ""} ${headFromStart ? "open-head-slot" : ""} ${isAnimatedMid ? "open-mid-slot" : ""}`.trim();
       el.style.gridRow = `${rowStart} / ${rowEnd}`;
       el.style.gridColumn = `${colStart} / ${colEnd}`;
+      el.dataset.eventKey = `open|${day}|${slot.start}|${slot.end}`;
+      el.dataset.kind = "open-time";
+      el.dataset.day = day;
+      el.dataset.startMin = String(sMin);
+      el.dataset.endMin = String(eMin);
       if (!isTiny) {
         el.title = `Open-time: ${formatRange12(slot.start, slot.end)}`;
       }
 
       el.innerHTML = `
         <div class="event-label open-time-label ${isTiny ? "tiny-open-time" : ""} ${showRange ? "" : "compact-open-time"}">
-          <span class="open-time-pill">Open-time</span>
+          <span class="open-time-pill ${showRange || tailToEnd ? "" : "short-open-pill"}">${pillText}</span>
           ${isTiny ? "" : `<span class="open-time-range ${showRange ? "" : "hover-only-range"}">${formatRange12(slot.start, slot.end)}</span>`}
         </div>
       `;
@@ -988,6 +1310,66 @@ function placeOverlap(overlapFree) {
       container.appendChild(el);
     }
   }
+}
+
+function enableBusyBlockMicroDrag() {
+  const layer = document.getElementById("events-layer");
+  if (!layer) return;
+
+  const maxDragPx = 10;
+  const busyEvents = layer.querySelectorAll(".event.busy-a, .event.busy-b, .event.busy-merged");
+
+  busyEvents.forEach((el) => {
+    let dragging = false;
+    let pointerId = null;
+    let startX = 0;
+    let startY = 0;
+
+    const onMove = (evt) => {
+      if (!dragging || evt.pointerId !== pointerId) return;
+      const dx = clamp(evt.clientX - startX, -maxDragPx, maxDragPx);
+      const dy = clamp(evt.clientY - startY, -maxDragPx, maxDragPx);
+      el.style.translate = `${dx}px ${dy}px`;
+    };
+
+    const finish = (evt) => {
+      if (!dragging) return;
+      if (evt && pointerId !== null && evt.pointerId !== pointerId) return;
+
+      dragging = false;
+      pointerId = null;
+      el.classList.remove("busy-dragging");
+      el.style.transition = "translate 180ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+      el.style.translate = "0px 0px";
+
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("pointerleave", finish);
+    };
+
+    el.addEventListener("pointerdown", (evt) => {
+      if (evt.button !== 0) return;
+      dragging = true;
+      pointerId = evt.pointerId;
+      startX = evt.clientX;
+      startY = evt.clientY;
+      el.classList.add("busy-dragging");
+      el.style.transition = "none";
+
+      try {
+        el.setPointerCapture(pointerId);
+      } catch (_err) {
+        // Ignore pointer capture failures.
+      }
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", finish);
+      window.addEventListener("pointercancel", finish);
+      window.addEventListener("pointerleave", finish);
+      evt.preventDefault();
+    });
+  });
 }
 
 function renderWeeklyView(overlapFree) {
@@ -1018,8 +1400,10 @@ function renderWeeklyView(overlapFree) {
     const showA = document.getElementById("toggle-a").checked;
     const showB = document.getElementById("toggle-b").checked;
     const showOverlap = document.getElementById("toggle-overlap").checked;
+    const openTime = getOpenTimeForSelection(showA, showB, overlapFree);
 
     const layer = document.getElementById("events-layer");
+    const previousState = collectEventLayoutState(layer);
     layer.innerHTML = "";
 
     if (showA && showB) {
@@ -1030,10 +1414,11 @@ function renderWeeklyView(overlapFree) {
       if (showB) placeBlocks(buildGroupedBusyBlocks(bBusy), "busy-b");
     }
 
-    if (showOverlap) {
-      const openTime = getOpenTimeForSelection(showA, showB, overlapFree);
-      placeOverlap(openTime);
-    }
+    if (showOverlap) placeOverlap(openTime);
+    renderBestOpenSlots(openTime, showA, showB);
+
+    animateEventLayerTransition(layer, previousState);
+    enableBusyBlockMicroDrag();
   }
 
   draw();
@@ -1046,6 +1431,8 @@ function renderWeeklyView(overlapFree) {
 document.getElementById("compare").onclick = async () => {
   const selected = getSelectedComparison();
   const comparisonName = (document.getElementById("comparison-name").value.trim() || selected?.name || "Comparison Schedule");
+  const compareStatus = document.getElementById("comparison-status-global");
+  if (compareStatus) compareStatus.textContent = "Comparing schedules and ranking open-time windows...";
 
   const payload = {
     personA: { name: "My Schedule", busy: aBusy },
@@ -1064,12 +1451,15 @@ document.getElementById("compare").onclick = async () => {
 
     const data = await res.json();
     if (!data.overlapFree) {
+      if (compareStatus) compareStatus.textContent = "Compare failed: missing open-time data from server.";
       output.innerHTML = `<div class="error">No overlapFree returned.</div>`;
       return;
     }
 
     renderWeeklyView(data.overlapFree);
+    if (compareStatus) compareStatus.textContent = "Comparison updated. Review top open slots and weekly view below.";
   } catch (err) {
+    if (compareStatus) compareStatus.textContent = "Compare failed. Check backend/database connectivity and try again.";
     output.innerHTML = `<div class="error">Error calling /compare: ${String(err)}</div>`;
   }
 };
