@@ -11,6 +11,10 @@ let comparisonNamePromptResolver = null;
 const USER_KEY_STORAGE_KEY = "timesync_user_id";
 const USER_KEY_COOKIE_DAYS = 365;
 const USER_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{2,31}$/;
+const THEME_STORAGE_KEY = "timesync_theme";
+const THEME_COOKIE_KEY = "timesync_theme";
+const THEME_COOKIE_DAYS = 365;
+let lastOverlapFreeData = null;
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -46,7 +50,7 @@ function makeId() {
   return `cmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-const BUSY_BLOCK_PALETTE = [
+const BUSY_BLOCK_PALETTE_LIGHT = [
   { fill: "rgba(99, 102, 241, 0.30)", border: "rgba(99, 102, 241, 0.62)" },
   { fill: "rgba(249, 115, 22, 0.26)", border: "rgba(234, 88, 12, 0.68)" },
   { fill: "rgba(217, 70, 239, 0.24)", border: "rgba(162, 28, 175, 0.68)" },
@@ -56,6 +60,23 @@ const BUSY_BLOCK_PALETTE = [
   { fill: "rgba(132, 204, 22, 0.28)", border: "rgba(132, 204, 22, 0.62)" },
   { fill: "rgba(168, 85, 247, 0.28)", border: "rgba(168, 85, 247, 0.62)" },
 ];
+
+const BUSY_BLOCK_PALETTE_DARK = [
+  { fill: "rgba(96, 165, 250, 0.50)", border: "rgba(147, 197, 253, 0.95)" },
+  { fill: "rgba(251, 146, 60, 0.48)", border: "rgba(253, 186, 116, 0.95)" },
+  { fill: "rgba(236, 72, 153, 0.50)", border: "rgba(249, 168, 212, 0.96)" },
+  { fill: "rgba(34, 211, 238, 0.48)", border: "rgba(103, 232, 249, 0.95)" },
+  { fill: "rgba(168, 85, 247, 0.56)", border: "rgba(216, 180, 254, 0.99)" },
+  { fill: "rgba(248, 113, 113, 0.44)", border: "rgba(252, 165, 165, 0.95)" },
+  { fill: "rgba(250, 204, 21, 0.50)", border: "rgba(253, 230, 138, 0.97)" },
+  { fill: "rgba(250, 204, 21, 0.44)", border: "rgba(253, 224, 71, 0.95)" },
+];
+
+function getBusyPalette() {
+  return document.body.classList.contains("dark-mode")
+    ? BUSY_BLOCK_PALETTE_DARK
+    : BUSY_BLOCK_PALETTE_LIGHT;
+}
 
 // "14:30" -> "2:30 PM"
 function to12Hour(hhmm) {
@@ -420,6 +441,85 @@ function syncActiveUserDisplay() {
 
   display.textContent = "Current schedule: not loaded";
   display.className = "active-user-display";
+}
+
+function applyTheme(theme) {
+  const isDark = theme === "dark";
+  document.body.classList.toggle("dark-mode", isDark);
+
+  const toggleBtn = document.getElementById("theme-toggle");
+  if (!toggleBtn) return;
+
+  const iconEl = toggleBtn.querySelector(".theme-toggle-icon");
+  const textEl = toggleBtn.querySelector(".theme-toggle-text");
+  if (iconEl) iconEl.textContent = isDark ? "☀️" : "🌙";
+  if (textEl) textEl.textContent = isDark ? "Light Mode" : "Dark Mode";
+}
+
+function readThemeFromCookie() {
+  try {
+    const key = `${THEME_COOKIE_KEY}=`;
+    const parts = document.cookie.split(";");
+    for (const rawPart of parts) {
+      const part = rawPart.trim();
+      if (part.startsWith(key)) {
+        const value = decodeURIComponent(part.slice(key.length)).trim().toLowerCase();
+        if (value === "dark" || value === "light") return value;
+      }
+    }
+  } catch (_err) {
+    // Ignore cookie read failures.
+  }
+  return "";
+}
+
+function persistThemePreference(theme) {
+  const normalized = theme === "dark" ? "dark" : "light";
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, normalized);
+  } catch (_err) {
+    // Ignore localStorage write failures.
+  }
+  try {
+    document.cookie = `${THEME_COOKIE_KEY}=${encodeURIComponent(normalized)}; Max-Age=${THEME_COOKIE_DAYS * 24 * 60 * 60}; Path=/; SameSite=Lax`;
+  } catch (_err) {
+    // Ignore cookie write failures.
+  }
+}
+
+function initThemeToggle() {
+  const toggleBtn = document.getElementById("theme-toggle");
+  if (!toggleBtn) return;
+
+  let savedTheme = "";
+  try {
+    savedTheme = (localStorage.getItem(THEME_STORAGE_KEY) || "").trim().toLowerCase();
+  } catch (_err) {
+    savedTheme = "";
+  }
+  if (savedTheme !== "dark" && savedTheme !== "light") {
+    savedTheme = readThemeFromCookie();
+  }
+
+  const initialTheme = savedTheme === "dark" || savedTheme === "light"
+    ? savedTheme
+    : "light";
+  applyTheme(initialTheme);
+  persistThemePreference(initialTheme);
+
+  toggleBtn.onclick = () => {
+    const nextTheme = document.body.classList.contains("dark-mode") ? "light" : "dark";
+    document.body.classList.add("theme-animating");
+    applyTheme(nextTheme);
+    if (lastOverlapFreeData) {
+      renderWeeklyView(lastOverlapFreeData);
+    }
+    persistThemePreference(nextTheme);
+
+    setTimeout(() => {
+      document.body.classList.remove("theme-animating");
+    }, 420);
+  };
 }
 
 function clearDaySelections() {
@@ -1479,6 +1579,7 @@ function getMergedBusyBlocks(aBlocks, bBlocks) {
 function buildGroupedBusyBlocks(blocks) {
   const groupByTime = new Map();
   let nextId = 1;
+  const paletteSet = getBusyPalette();
 
   return blocks.map((b) => {
     const key = `${b.start}|${b.end}`;
@@ -1486,7 +1587,7 @@ function buildGroupedBusyBlocks(blocks) {
       groupByTime.set(key, nextId++);
     }
     const id = groupByTime.get(key);
-    const palette = BUSY_BLOCK_PALETTE[(id - 1) % BUSY_BLOCK_PALETTE.length];
+    const palette = paletteSet[(id - 1) % paletteSet.length];
     return {
       ...b,
       label: `Busy Block ${id}`,
@@ -1700,8 +1801,10 @@ document.getElementById("compare").onclick = async () => {
     }
 
     renderWeeklyView(data.overlapFree);
+    lastOverlapFreeData = data.overlapFree;
     if (compareStatus) compareStatus.textContent = "Comparison updated. Review top open slots and weekly view below.";
   } catch (err) {
+    lastOverlapFreeData = null;
     if (compareStatus) compareStatus.textContent = "Compare failed. Check backend/database connectivity and try again.";
     output.innerHTML = `<div class="error">Error calling /compare: ${String(err)}</div>`;
   }
@@ -1758,6 +1861,7 @@ if (createProfileBtn) {
 document.getElementById("import-friend").onclick = importFriendSchedule;
 
 // Initial UI state
+initThemeToggle();
 initComparisonNameModal();
 initUserKeyInput();
 initWorkspaceGate();
