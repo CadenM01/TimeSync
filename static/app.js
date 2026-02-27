@@ -484,6 +484,7 @@ function getSelectedComparison() {
 function renderComparisonSelect() {
   const select = document.getElementById("comparison-select");
   const nameInput = document.getElementById("comparison-name");
+  const deleteBtn = document.getElementById("delete-comparison");
 
   select.innerHTML = "";
 
@@ -494,6 +495,7 @@ function renderComparisonSelect() {
     select.appendChild(opt);
     selectedComparisonId = null;
     nameInput.value = "";
+    if (deleteBtn) deleteBtn.disabled = true;
     setComparisonStatus("No saved comparison selected.");
     return;
   }
@@ -517,6 +519,7 @@ function renderComparisonSelect() {
   select.value = selectedComparisonId || "";
   const selected = getSelectedComparison();
   nameInput.value = selected ? selected.name : "";
+  if (deleteBtn) deleteBtn.disabled = !selected;
 }
 
 function loadSelectedComparisonIntoEditor() {
@@ -612,6 +615,41 @@ async function startNewComparisonDraft() {
   }
 
   setComparisonStatus(`Created "${created.name}". Add busy blocks.`);
+}
+
+async function deleteSelectedComparison() {
+  const selected = getSelectedComparison();
+  if (!selected) {
+    setComparisonStatus("Select a comparison schedule to delete.", true);
+    return;
+  }
+
+  const confirmed = window.confirm(`Delete "${selected.name}"? This cannot be undone.`);
+  if (!confirmed) return;
+
+  const idx = comparisonSchedules.findIndex((c) => c.id === selected.id);
+  if (idx === -1) {
+    setComparisonStatus("Selected comparison was not found.", true);
+    return;
+  }
+
+  comparisonSchedules.splice(idx, 1);
+  selectedComparisonId = null;
+  comparisonDraftSourceUserKey = null;
+
+  replaceBusy(bBusy, []);
+  renderBusyList(bBusy, "b-list", markComparisonDirty);
+  document.getElementById("comparison-name").value = "";
+  renderComparisonSelect();
+  setComparisonStatus(`Deleted "${selected.name}".`);
+
+  if (!getProfileKey()) {
+    setPersistStatus("Comparison deleted locally. Enter User ID and click Save Profile to persist.");
+    return;
+  }
+
+  const ok = await saveProfile({ silent: true });
+  if (ok) setPersistStatus(`Deleted comparison "${selected.name}" from your profile.`);
 }
 
 function maybeSaveDraftIntoComparisons() {
@@ -1487,6 +1525,10 @@ document.getElementById("save-comparison").onclick = async () => {
   const ok = await saveProfile({ silent: true });
   if (ok) setPersistStatus(`Saved comparison "${saved.name}" to your profile.`);
 };
+const deleteComparisonBtn = document.getElementById("delete-comparison");
+if (deleteComparisonBtn) {
+  deleteComparisonBtn.onclick = deleteSelectedComparison;
+}
 document.getElementById("comparison-name").oninput = markComparisonDirty;
 
 document.getElementById("load-profile").onclick = loadProfile;
