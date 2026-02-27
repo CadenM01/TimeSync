@@ -17,6 +17,7 @@
     <div class="grid">
       <section class="card">
         <h2>My Schedule</h2>
+        <p class="section-sub">Build and manage your default weekly schedule.</p>
 
         <label>Days</label>
         <div class="daypick" id="a-days">
@@ -51,6 +52,7 @@
 
       <section class="card">
         <h2>Comparison Schedule</h2>
+        <p class="section-sub">Create saved comparisons with friends or classmates.</p>
 
         <label for="comparison-select">Saved Comparison Schedules</label>
         <select id="comparison-select"></select>
@@ -97,24 +99,31 @@
     </div>
 
     <div class="actions">
-      <div class="persist">
-        <label for="schedule-key">My User ID</label>
-        <input id="schedule-key" type="text" placeholder="e.g. caden-maki" />
-        <div class="persist-actions">
-          <button id="load-profile" type="button">Load Profile</button>
-          <button id="save-profile" type="button">Save Profile</button>
-        </div>
+      <details class="persist-panel">
+        <summary>Profile and Sharing</summary>
+        <div class="persist">
+          <label for="schedule-key">My User ID</label>
+          <input id="schedule-key" type="text" placeholder="e.g. your-user-id" />
+          <div class="persist-actions">
+            <button id="load-profile" type="button">Load Profile</button>
+            <button id="save-profile" type="button">Save Profile</button>
+          </div>
 
-        <label for="friend-user-key">Import Friend by User ID</label>
-        <div class="persist-actions">
-          <input id="friend-user-key" type="text" placeholder="friend's user id" />
-          <button id="import-friend" type="button">Import Friend Schedule</button>
-        </div>
+          <label for="friend-user-key">Import Friend by User ID</label>
+          <div class="persist-actions">
+            <input id="friend-user-key" type="text" placeholder="friend's user id" />
+            <button id="import-friend" type="button">Import Friend Schedule</button>
+          </div>
 
-        <div id="persist-status" class="muted">Not loaded yet.</div>
-        <div id="import-status" class="muted"></div>
+          <div id="persist-status" class="muted">Not loaded yet.</div>
+          <div id="import-status" class="muted"></div>
+        </div>
+      </details>
+
+      <div class="compare-wrap">
+        <div id="comparison-status-global" class="muted">Choose schedules, then compare to see shared availability.</div>
+        <button id="compare" type="button">Compare</button>
       </div>
-      <button id="compare" type="button">Compare</button>
     </div>
 
     <section class="card">

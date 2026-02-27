@@ -1,60 +1,50 @@
 # TimeSync
-A schedule matching calendar app focused on helping students quickly compare schedules and find meetup times.
 
-## Local run
+TimeSync is a full-stack scheduling app for comparing two schedules and quickly identifying overlapping open time.
+
+## Features
+- Create and manage `My Schedule` and named `Comparison Schedules`
+- Visual weekly calendar with busy and open-time blocks
+- Save/load profiles and schedules with MongoDB Atlas persistence
+- Import a friend schedule by user ID
+
+## Tech Stack
+- Backend: Flask (Python)
+- Frontend: HTML, CSS, JavaScript
+- Database: MongoDB Atlas
+- Deployment: AWS EC2 + GitHub Actions
+
+## Environment Variables
+Create a `.env` file in the project root:
+
+```env
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>/<db>?retryWrites=true&w=majority
+MONGODB_DB=timesync
+PORT=8080
+```
+
+## Run Locally
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-export MONGODB_URI="your_uri"
-export MONGODB_DB="timesync"
 python app.py
 ```
 
-## EC2 + GitHub Actions deploy (assignment setup)
+Open: `http://127.0.0.1:8080`
 
-This repo includes:
-- `run.sh` (remote deploy script on EC2)
-- `.github/workflows/deploy.yml` (auto deploy on push to `main`)
-
-### 1. One-time EC2 setup
-On EC2 (Ubuntu):
-```bash
-sudo apt update
-sudo apt install -y git python3 python3-venv python3-pip
-cd ~
-git clone https://github.com/CadenM01/TimeSync.git
-cd TimeSync
-cp .env.example .env
-```
-
-Edit `.env` with real values:
-- `MONGODB_URI=...`
-- `MONGODB_DB=timesync`
-- `PORT=8080`
-
-Then run:
+## Deploy (EC2)
 ```bash
 chmod +x run.sh
 ./run.sh
 ```
 
-App URL:
-`http://<EC2_PUBLIC_IP>:8080`
+Open: `http://<EC2_PUBLIC_IP>:8080`
 
-### 2. EC2 Security Group
-Open inbound:
-- `22` (SSH) from your IP
-- `8080` (Custom TCP) from `0.0.0.0/0` for grading/public access
+## CI/CD
+This repo includes `.github/workflows/deploy.yml` to auto-deploy on push to `main`.
 
-### 3. MongoDB Atlas Network Access
-Allow your EC2 public IP (or temporary `0.0.0.0/0` for demo).
-
-### 4. GitHub repo secrets (for CI/CD)
-GitHub -> Settings -> Secrets and variables -> Actions -> New repository secret:
-- `EC2_HOST` = EC2 public IP
-- `EC2_USER` = `ubuntu`
-- `EC2_SSH_KEY` = contents of your `.pem` private key
-
-After this, every push to `main` auto-deploys.
-# deploy test Thu Feb 26 18:53:09 PST 2026
+Required GitHub Secrets:
+- `EC2_HOST`
+- `EC2_USER`
+- `EC2_SSH_KEY`
