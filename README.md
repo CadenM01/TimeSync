@@ -57,3 +57,4 @@ GitHub -> Settings -> Secrets and variables -> Actions -> New repository secret:
 - `EC2_SSH_KEY` = contents of your `.pem` private key
 
 After this, every push to `main` auto-deploys.
+# deploy test Thu Feb 26 18:53:09 PST 2026
