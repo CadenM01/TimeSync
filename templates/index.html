@@ -20,14 +20,26 @@
       <div class="hero-chip">Two schedules in. Best meetup windows out.</div>
     </header>
 
-    <div class="grid">
+    <section id="workspace-gate" class="workspace-gate">
+      <h3>Get Started</h3>
+      <p>Enter a User ID, then load an existing profile or create a new schedule.</p>
+      <div class="workspace-gate-row">
+        <input id="gate-user-key" type="text" placeholder="e.g. alex-2026" />
+      </div>
+      <div class="workspace-gate-actions">
+        <button id="gate-load-profile" type="button">Load Profile</button>
+        <button id="gate-create-profile" type="button" class="primary-button">Create New Schedule</button>
+      </div>
+    </section>
+
+    <div class="grid workspace-only">
       <section class="card">
         <h2>My Schedule</h2>
         <p class="section-sub">Build and manage your default weekly schedule.</p>
 
         <label>Days</label>
         <div class="daypick" id="a-days">
-          <label><input type="checkbox" value="Mon" checked> Mon</label>
+          <label><input type="checkbox" value="Mon"> Mon</label>
           <label><input type="checkbox" value="Tue"> Tue</label>
           <label><input type="checkbox" value="Wed"> Wed</label>
           <label><input type="checkbox" value="Thu"> Thu</label>
@@ -75,7 +87,7 @@
 
         <label>Days</label>
         <div class="daypick" id="b-days">
-          <label><input type="checkbox" value="Mon" checked> Mon</label>
+          <label><input type="checkbox" value="Mon"> Mon</label>
           <label><input type="checkbox" value="Tue"> Tue</label>
           <label><input type="checkbox" value="Wed"> Wed</label>
           <label><input type="checkbox" value="Thu"> Thu</label>
@@ -109,17 +121,22 @@
       <details class="persist-panel">
         <summary>Profile and Sharing</summary>
         <div class="persist">
-          <label for="schedule-key">My User ID</label>
+          <div id="active-user-display" class="active-user-display">Current schedule: not loaded</div>
+
+          <label for="schedule-key">User ID</label>
           <input id="schedule-key" type="text" placeholder="e.g. your-user-id" />
           <div class="persist-actions">
             <button id="load-profile" type="button">Load Profile</button>
-            <button id="save-profile" type="button">Save Profile</button>
+            <button id="update-profile" type="button" class="requires-active">Update Schedule</button>
+            <button id="create-profile" type="button" class="primary-button">Create New Schedule</button>
           </div>
 
-          <label for="friend-user-key">Import Friend by User ID</label>
-          <div class="persist-actions">
-            <input id="friend-user-key" type="text" placeholder="friend's user id" />
-            <button id="import-friend" type="button">Import Friend Schedule</button>
+          <div id="sharing-tools" class="requires-active">
+            <label for="friend-user-key">Import Friend by User ID</label>
+            <div class="persist-actions">
+              <input id="friend-user-key" type="text" placeholder="friend's user id" />
+              <button id="import-friend" type="button">Import Friend Schedule</button>
+            </div>
           </div>
 
           <div id="persist-status" class="muted">Not loaded yet.</div>
@@ -127,13 +144,13 @@
         </div>
       </details>
 
-      <div class="compare-wrap">
+      <div class="compare-wrap workspace-only">
         <div id="comparison-status-global" class="muted">Choose schedules, then compare to see shared availability.</div>
         <button id="compare" type="button">Compare</button>
       </div>
     </div>
 
-    <section class="card">
+    <section class="card workspace-only">
       <h2>Weekly View</h2>
       <div id="output" class="output muted">No results yet.</div>
     </section>

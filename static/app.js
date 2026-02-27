@@ -10,6 +10,7 @@ let comparisonDraftSourceUserKey = null; // source user for unsaved imported com
 let comparisonNamePromptResolver = null;
 const USER_KEY_STORAGE_KEY = "timesync_user_id";
 const USER_KEY_COOKIE_DAYS = 365;
+const USER_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{2,31}$/;
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -368,8 +369,67 @@ function createComparisonSchedule({ name, busy = [], sourceUserKey = null }) {
   return created;
 }
 
+function normalizeUserKeyInput(value) {
+  return (value || "").trim().toLowerCase();
+}
+
+function isValidUserKey(value) {
+  return USER_KEY_PATTERN.test(value);
+}
+
 function getProfileKey() {
-  return document.getElementById("schedule-key").value.trim().toLowerCase();
+  return normalizeUserKeyInput(document.getElementById("schedule-key").value);
+}
+
+function setWorkspaceLocked(locked) {
+  document.body.classList.toggle("workspace-locked", Boolean(locked));
+
+  const gate = document.getElementById("workspace-gate");
+  if (gate) {
+    gate.classList.toggle("hidden", !locked);
+  }
+}
+
+function syncUserKeyInputs() {
+  const mainInput = document.getElementById("schedule-key");
+  const gateInput = document.getElementById("gate-user-key");
+  if (!mainInput || !gateInput) return;
+  if (document.activeElement === gateInput) return;
+  gateInput.value = normalizeUserKeyInput(mainInput.value);
+}
+
+function syncActiveUserDisplay() {
+  const display = document.getElementById("active-user-display");
+  const typedKey = getProfileKey();
+  setWorkspaceLocked(!activeProfileKey);
+  syncUserKeyInputs();
+
+  if (!display) return;
+
+  if (activeProfileKey) {
+    display.textContent = `Current schedule: ${activeProfileKey}`;
+    display.className = "active-user-display profile-ready";
+    return;
+  }
+
+  if (typedKey) {
+    display.textContent = `Current schedule: not loaded (${typedKey})`;
+    display.className = "active-user-display profile-pending";
+    return;
+  }
+
+  display.textContent = "Current schedule: not loaded";
+  display.className = "active-user-display";
+}
+
+function clearDaySelections() {
+  ["a-days", "b-days"].forEach((containerId) => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.querySelectorAll("input[type='checkbox']").forEach((cb) => {
+      cb.checked = false;
+    });
+  });
 }
 
 function readStoredUserKey() {
@@ -441,11 +501,42 @@ function initUserKeyInput() {
 
     if (activeProfileKey && key !== activeProfileKey) activeProfileKey = null;
     comparisonContextKey = key || null;
+    syncActiveUserDisplay();
   };
 
   input.addEventListener("input", syncStoredKey);
   input.addEventListener("change", syncStoredKey);
   input.addEventListener("blur", syncStoredKey);
+  syncActiveUserDisplay();
+}
+
+function initWorkspaceGate() {
+  const gateInput = document.getElementById("gate-user-key");
+  const mainInput = document.getElementById("schedule-key");
+  const gateLoadBtn = document.getElementById("gate-load-profile");
+  const gateCreateBtn = document.getElementById("gate-create-profile");
+
+  if (gateInput && mainInput) {
+    gateInput.value = normalizeUserKeyInput(mainInput.value);
+    gateInput.addEventListener("input", () => {
+      mainInput.value = normalizeUserKeyInput(gateInput.value);
+      mainInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  if (gateLoadBtn && mainInput && gateInput) {
+    gateLoadBtn.onclick = async () => {
+      mainInput.value = normalizeUserKeyInput(gateInput.value);
+      mainInput.dispatchEvent(new Event("change", { bubbles: true }));
+      await loadProfile();
+    };
+  }
+
+  if (gateCreateBtn && gateInput) {
+    gateCreateBtn.onclick = async () => {
+      await createNewSchedule(gateInput.value);
+    };
+  }
 }
 
 function setPersistStatus(msg, isError = false) {
@@ -513,13 +604,13 @@ function renderComparisonSelect() {
   });
 
   if (!selectedComparisonId || !comparisonSchedules.some((c) => c.id === selectedComparisonId)) {
-    selectedComparisonId = null;
+    selectedComparisonId = comparisonSchedules[0].id;
   }
 
   select.value = selectedComparisonId || "";
   const selected = getSelectedComparison();
   nameInput.value = selected ? selected.name : "";
-  if (deleteBtn) deleteBtn.disabled = !selected;
+  if (deleteBtn) deleteBtn.disabled = comparisonSchedules.length === 0;
 }
 
 function loadSelectedComparisonIntoEditor() {
@@ -643,13 +734,88 @@ async function deleteSelectedComparison() {
   renderComparisonSelect();
   setComparisonStatus(`Deleted "${selected.name}".`);
 
-  if (!getProfileKey()) {
-    setPersistStatus("Comparison deleted locally. Enter User ID and click Save Profile to persist.");
+  const key = getProfileKey();
+  if (!key) {
+    setPersistStatus("Comparison deleted locally. Enter User ID and click Update Schedule to persist.");
+    return;
+  }
+  if (!activeProfileKey || key !== activeProfileKey) {
+    setPersistStatus("Comparison deleted locally. Load or create this profile, then click Update Schedule to persist.");
     return;
   }
 
   const ok = await saveProfile({ silent: true });
   if (ok) setPersistStatus(`Deleted comparison "${selected.name}" from your profile.`);
+}
+
+function resetAllEditorsForCurrentProfile() {
+  replaceBusy(aBusy, []);
+  replaceBusy(bBusy, []);
+  replaceComparisonSchedules([]);
+  selectedComparisonId = null;
+  comparisonDraftSourceUserKey = null;
+
+  renderBusyList(aBusy, "a-list");
+  renderBusyList(bBusy, "b-list", markComparisonDirty);
+  renderComparisonSelect();
+  setComparisonStatus("No saved comparison selected.");
+  setImportStatus("");
+}
+
+async function createNewSchedule(preferredUserKey = "") {
+  let key = normalizeUserKeyInput(preferredUserKey);
+
+  if (!key) {
+    const requestedKey = await requestComparisonName({
+      title: "Create New Schedule",
+      message: "Enter a new User ID. Existing IDs cannot be overwritten here.",
+      placeholder: "e.g. alex-2026",
+      defaultValue: "",
+    });
+
+    if (!requestedKey) {
+      setPersistStatus("Create new schedule canceled.");
+      return;
+    }
+    key = normalizeUserKeyInput(requestedKey);
+  }
+
+  if (!isValidUserKey(key)) {
+    setPersistStatus("User ID must be 3-32 chars: lowercase letters, numbers, '-' or '_'.", true);
+    return;
+  }
+
+  setPersistStatus(`Checking availability for "${key}"...`);
+
+  try {
+    const res = await fetch(`/api/profiles/${encodeURIComponent(key)}`);
+    const data = await res.json();
+    if (!data.ok) {
+      setPersistStatus(data.error || "Failed to check User ID availability.", true);
+      return;
+    }
+
+    const hasExistingData =
+      Boolean(data.updatedAt) ||
+      Boolean((data.mySchedule?.busy || []).length) ||
+      Boolean((data.comparisonSchedules || []).length);
+
+    if (hasExistingData) {
+      setPersistStatus(`User ID "${key}" already exists. Load it instead, or choose another.`, true);
+      return;
+    }
+
+    document.getElementById("schedule-key").value = key;
+    persistUserKey(key);
+    activeProfileKey = key;
+    comparisonContextKey = key;
+    syncActiveUserDisplay();
+
+    resetAllEditorsForCurrentProfile();
+    setPersistStatus(`Created new schedule "${key}". Add busy blocks, then click Update Schedule.`);
+  } catch (err) {
+    setPersistStatus(`Error creating schedule workspace: ${String(err)}`, true);
+  }
 }
 
 function maybeSaveDraftIntoComparisons() {
@@ -668,7 +834,14 @@ async function loadProfile() {
   persistUserKey(key);
   if (!key) {
     activeProfileKey = null;
+    syncActiveUserDisplay();
     setPersistStatus("Enter your User ID first.", true);
+    return;
+  }
+  if (!isValidUserKey(key)) {
+    activeProfileKey = null;
+    syncActiveUserDisplay();
+    setPersistStatus("User ID must be 3-32 chars: lowercase letters, numbers, '-' or '_'.", true);
     return;
   }
 
@@ -681,6 +854,7 @@ async function loadProfile() {
 
     if (!data.ok) {
       activeProfileKey = null;
+      syncActiveUserDisplay();
       setPersistStatus(data.error || "Failed to load profile.", true);
       return;
     }
@@ -694,6 +868,8 @@ async function loadProfile() {
     loadSelectedComparisonIntoEditor();
     activeProfileKey = key;
     comparisonContextKey = key;
+    syncActiveUserDisplay();
+    clearDaySelections();
 
     const when = data.updatedAt
       ? `Loaded profile "${key}" (updated ${new Date(data.updatedAt).toLocaleString()}).`
@@ -701,27 +877,51 @@ async function loadProfile() {
     setPersistStatus(when);
     persistUserKey(key);
   } catch (err) {
+    activeProfileKey = null;
+    syncActiveUserDisplay();
     setPersistStatus(`Error loading profile: ${String(err)}`, true);
   }
 }
 
+function ensureProfileContextForUpdate(key) {
+  if (!activeProfileKey) {
+    setPersistStatus("Load a profile or create a new schedule before updating.", true);
+    return false;
+  }
+  if (key !== activeProfileKey) {
+    setPersistStatus(
+      `User ID changed from "${activeProfileKey}" to "${key}". Click Load Profile or Create New Schedule first.`,
+      true
+    );
+    return false;
+  }
+  return true;
+}
+
 async function saveProfile(options = {}) {
-  const { silent = false } = options;
+  const { silent = false, requireLoadedContext = true } = options;
   const key = getProfileKey();
   persistUserKey(key);
   if (!key) {
     setPersistStatus("Enter your User ID first.", true);
     return false;
   }
+  if (!isValidUserKey(key)) {
+    setPersistStatus("User ID must be 3-32 chars: lowercase letters, numbers, '-' or '_'.", true);
+    return false;
+  }
+  if (requireLoadedContext && !ensureProfileContextForUpdate(key)) {
+    return false;
+  }
 
   const draftName = document.getElementById("comparison-name").value.trim();
   if (!selectedComparisonId && bBusy.length > 0 && !draftName) {
-    setPersistStatus("Name the imported comparison and click Save Comparison before saving profile.", true);
+    setPersistStatus("Name the imported comparison and click Save Comparison before updating.", true);
     return false;
   }
 
   maybeSaveDraftIntoComparisons();
-  if (!silent) setPersistStatus("Saving profile...");
+  if (!silent) setPersistStatus("Updating schedule...");
 
   try {
     const payload = {
@@ -747,20 +947,21 @@ async function saveProfile(options = {}) {
     const data = await res.json();
 
     if (!data.ok) {
-      setPersistStatus(data.error || "Failed to save profile.", true);
+      setPersistStatus(data.error || "Failed to update schedule.", true);
       return false;
     }
 
     const when = data.updatedAt
       ? new Date(data.updatedAt).toLocaleString()
       : "just now";
-    if (!silent) setPersistStatus(`Saved profile "${key}" at ${when}.`);
+    if (!silent) setPersistStatus(`Updated schedule "${key}" at ${when}.`);
     activeProfileKey = key;
     comparisonContextKey = key;
     persistUserKey(key);
+    syncActiveUserDisplay();
     return true;
   } catch (err) {
-    setPersistStatus(`Error saving profile: ${String(err)}`, true);
+    setPersistStatus(`Error updating schedule: ${String(err)}`, true);
     return false;
   }
 }
@@ -769,6 +970,10 @@ async function importFriendSchedule() {
   const key = getProfileKey();
   if (!key) {
     setImportStatus("Enter your User ID first.", true);
+    return;
+  }
+  if (!ensureProfileContextForUpdate(key)) {
+    setImportStatus("Load this profile or create a new schedule before importing friends.", true);
     return;
   }
 
@@ -1513,13 +1718,21 @@ document.getElementById("comparison-select").onchange = (e) => {
 
 document.getElementById("new-comparison").onclick = async () => {
   await startNewComparisonDraft();
-  if (getProfileKey()) await saveProfile({ silent: true });
+  const key = getProfileKey();
+  if (key && activeProfileKey && key === activeProfileKey) {
+    await saveProfile({ silent: true });
+  }
 };
 document.getElementById("save-comparison").onclick = async () => {
   const saved = saveComparisonFromEditor({ silent: false, allowCreate: true });
   if (!saved) return;
-  if (!getProfileKey()) {
-    setPersistStatus("Comparison saved locally. Enter User ID and click Save Profile to persist.");
+  const key = getProfileKey();
+  if (!key) {
+    setPersistStatus("Comparison saved locally. Enter User ID and click Update Schedule to persist.");
+    return;
+  }
+  if (!activeProfileKey || key !== activeProfileKey) {
+    setPersistStatus("Comparison saved locally. Load or create this profile, then click Update Schedule to persist.");
     return;
   }
   const ok = await saveProfile({ silent: true });
@@ -1531,13 +1744,24 @@ if (deleteComparisonBtn) {
 }
 document.getElementById("comparison-name").oninput = markComparisonDirty;
 
-document.getElementById("load-profile").onclick = loadProfile;
-document.getElementById("save-profile").onclick = saveProfile;
+document.getElementById("load-profile").onclick = async () => {
+  await loadProfile();
+};
+const updateProfileBtn = document.getElementById("update-profile") || document.getElementById("save-profile");
+if (updateProfileBtn) {
+  updateProfileBtn.onclick = () => saveProfile({ silent: false, requireLoadedContext: true });
+}
+const createProfileBtn = document.getElementById("create-profile");
+if (createProfileBtn) {
+  createProfileBtn.onclick = createNewSchedule;
+}
 document.getElementById("import-friend").onclick = importFriendSchedule;
 
 // Initial UI state
 initComparisonNameModal();
 initUserKeyInput();
+initWorkspaceGate();
+clearDaySelections();
 renderBusyList(aBusy, "a-list");
 renderBusyList(bBusy, "b-list", markComparisonDirty);
 renderComparisonSelect();
@@ -1546,5 +1770,5 @@ renderComparisonSelect();
 if (getProfileKey()) {
   loadProfile();
 } else {
-  setPersistStatus("Enter your User ID once, then it will auto-load next time.");
+  setPersistStatus("Enter your User ID, then click Load Profile or Create New Schedule.");
 }
