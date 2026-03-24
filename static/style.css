@@ -28,6 +28,8 @@
 
 * { box-sizing: border-box; }
 
+.hidden { display: none !important; }
+
 body {
   margin: 0;
   font-family: "Sora", "Manrope", "Avenir Next", "Segoe UI", sans-serif;
@@ -77,10 +79,12 @@ h1 {
     linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(248, 251, 255, 0.95) 100%),
     var(--card);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 18px;
+  border-radius: 18px;
+  padding: 22px;
   box-shadow: var(--shadow);
-  transition: box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: box-shadow 220ms ease, transform 220ms ease, border-color 220ms ease;
   animation: card-in 260ms ease both;
 }
 
@@ -161,7 +165,7 @@ button {
   color: #152238;
   font-weight: 700;
   letter-spacing: 0.01em;
-  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, filter 120ms ease;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, filter 160ms ease, background 160ms ease, color 160ms ease;
 }
 
 button:hover {
@@ -227,6 +231,189 @@ button:active {
 
 .modal-confirm {
   background: #dbeafe;
+}
+
+/* ---------- Auth Modal ---------- */
+.auth-modal-card {
+  width: min(420px, 92vw);
+  padding: 28px 24px;
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.auth-header h3 {
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 16px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 150ms ease;
+  min-height: auto;
+  box-shadow: none;
+}
+
+.auth-tab:hover {
+  color: var(--text);
+}
+
+.auth-tab.active {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.auth-tab-content label {
+  margin-top: 8px;
+}
+
+.auth-submit-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px;
+}
+
+.auth-status {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 13px;
+  min-height: 1.3em;
+}
+
+.auth-tab-content {
+  animation: tab-fade-in 200ms ease both;
+}
+
+.auth-tab-content.hidden {
+  display: none;
+}
+
+@keyframes tab-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- User Info Bar ---------- */
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.user-display-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.user-friend-code {
+  font-family: "Space Grotesk", "SF Mono", monospace;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.copy-code-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  min-height: auto;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.copy-code-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.logout-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  min-height: auto;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.logout-btn:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+/* ---------- Friend Code Section ---------- */
+.friend-code-section {
+  text-align: center;
+  padding: 12px 0;
+}
+
+.friend-code-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.friend-code-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.friend-code-value {
+  font-family: "Space Grotesk", "SF Mono", monospace;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 4px 14px;
+  border-radius: 8px;
+}
+
+.friend-code-hint {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.sharing-divider {
+  height: 1px;
+  background: var(--border-soft);
+  margin: 12px 0;
 }
 
 .actions {
@@ -1727,6 +1914,72 @@ body.dark-mode select {
 
 body.dark-mode input::placeholder {
   color: #7f96bb;
+}
+
+body.dark-mode .modal-card h3,
+body.dark-mode .auth-header h3 {
+  color: #e8f0fe;
+}
+
+body.dark-mode .auth-header p {
+  color: #8ba0c4;
+}
+
+body.dark-mode .auth-tabs {
+  background: rgba(15, 25, 45, 0.8);
+  border-color: #2b446b;
+}
+
+body.dark-mode .auth-tab {
+  color: #8ba0c4;
+}
+
+body.dark-mode .auth-tab.active {
+  background: #172b49;
+  color: #d5e4ff;
+}
+
+body.dark-mode .auth-tab:hover {
+  color: #d5e4ff;
+}
+
+body.dark-mode .user-info {
+  background: rgba(15, 25, 45, 0.7);
+  border-color: #223a5f;
+}
+
+body.dark-mode .user-display-name {
+  color: #d2ddf0;
+}
+
+body.dark-mode .user-friend-code {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+}
+
+body.dark-mode .friend-code-value {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+}
+
+body.dark-mode .copy-code-btn,
+body.dark-mode .logout-btn {
+  border-color: #2b446b;
+  color: #8ba0c4;
+}
+
+body.dark-mode .copy-code-btn:hover {
+  border-color: #60a5fa;
+  color: #60a5fa;
+}
+
+body.dark-mode .logout-btn:hover {
+  border-color: #f87171;
+  color: #f87171;
+}
+
+body.dark-mode .sharing-divider {
+  background: #223a5f;
 }
 
 body.dark-mode input:focus,

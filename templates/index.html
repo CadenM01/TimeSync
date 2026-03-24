@@ -14,29 +14,22 @@
         <div class="hero-tag">Smart Availability Planner</div>
         <h1>TimeSync</h1>
         <p class="sub">
-          Save your own schedule once, save/import friend schedules, then compare quickly for meetup planning.
+          Save your schedule, share a friend code, and find the best meetup windows instantly.
         </p>
       </div>
       <div class="hero-actions">
+        <div id="user-info" class="user-info hidden">
+          <span id="user-display-name" class="user-display-name"></span>
+          <span id="user-friend-code" class="user-friend-code" title="Your friend code"></span>
+          <button id="copy-friend-code-hero" type="button" class="copy-code-btn" title="Copy friend code">Copy</button>
+          <button id="logout-btn" type="button" class="logout-btn">Sign Out</button>
+        </div>
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark mode">
           <span class="theme-toggle-icon" aria-hidden="true">🌙</span>
           <span class="theme-toggle-text">Dark Mode</span>
         </button>
-        <div class="hero-chip">Two schedules in. Best meetup windows out.</div>
       </div>
     </header>
-
-    <section id="workspace-gate" class="workspace-gate">
-      <h3>Get Started</h3>
-      <p>Enter a User ID, then load an existing profile or create a new schedule.</p>
-      <div class="workspace-gate-row">
-        <input id="gate-user-key" type="text" placeholder="e.g. alex-2026" />
-      </div>
-      <div class="workspace-gate-actions">
-        <button id="gate-load-profile" type="button">Load Profile</button>
-        <button id="gate-create-profile" type="button" class="primary-button">Create New Schedule</button>
-      </div>
-    </section>
 
     <div class="grid workspace-only">
       <section class="card">
@@ -61,7 +54,7 @@
               <select id="a-start-ap"></select>
             </div>
           </label>
-          
+
           <label>End
             <div class="timepick">
               <select id="a-end-h"></select>
@@ -109,7 +102,7 @@
               <select id="b-start-ap"></select>
             </div>
           </label>
-          
+
           <label>End
             <div class="timepick">
               <select id="b-end-h"></select>
@@ -125,31 +118,36 @@
 
     <div class="actions">
       <div class="import-button-wrap workspace-only">
-        <button id="open-import-modal" type="button" class="import-trigger-btn">📅 Import Schedule from CPP</button>
+        <button id="open-import-modal" type="button" class="import-trigger-btn">Import Schedule from CPP</button>
       </div>
 
-      <details class="persist-panel">
-        <summary>Profile and Sharing</summary>
+      <details class="persist-panel workspace-only">
+        <summary>Sharing & Settings</summary>
         <div class="persist">
-          <div id="active-user-display" class="active-user-display">Current schedule: not loaded</div>
-
-          <label for="schedule-key">User ID</label>
-          <input id="schedule-key" type="text" placeholder="e.g. your-user-id" />
-          <div class="persist-actions">
-            <button id="load-profile" type="button">Load Profile</button>
-            <button id="update-profile" type="button" class="requires-active">Update Schedule</button>
-            <button id="create-profile" type="button" class="primary-button">Create New Schedule</button>
-          </div>
-
-          <div id="sharing-tools" class="requires-active">
-            <label for="friend-user-key">Import Friend by User ID</label>
-            <div class="persist-actions">
-              <input id="friend-user-key" type="text" placeholder="friend's user id" />
-              <button id="import-friend" type="button">Import Friend Schedule</button>
+          <div class="friend-code-section">
+            <div class="friend-code-display">
+              <span class="friend-code-label">Your Friend Code</span>
+              <code id="my-friend-code" class="friend-code-value">------</code>
+              <button id="copy-friend-code" type="button" class="copy-code-btn" title="Copy friend code">Copy</button>
             </div>
+            <p class="muted friend-code-hint">Share this code with friends so they can import your schedule.</p>
           </div>
 
-          <div id="persist-status" class="muted">Not loaded yet.</div>
+          <div class="sharing-divider"></div>
+
+          <label for="friend-code-input">Import Friend by Code</label>
+          <div class="persist-actions">
+            <input id="friend-code-input" type="text" placeholder="e.g. A3X9K2" maxlength="6" style="text-transform:uppercase;" />
+            <button id="import-friend" type="button">Import</button>
+          </div>
+
+          <div class="sharing-divider"></div>
+
+          <div class="persist-actions">
+            <button id="update-profile" type="button" class="primary-button">Save All Changes</button>
+          </div>
+
+          <div id="persist-status" class="muted"></div>
           <div id="import-status" class="muted"></div>
         </div>
       </details>
@@ -164,6 +162,39 @@
       <h2>Weekly View</h2>
       <div id="output" class="output muted">No results yet.</div>
     </section>
+  </div>
+
+  <!-- Auth Modal -->
+  <div id="auth-modal" class="modal-backdrop" aria-hidden="false">
+    <div class="modal-card auth-modal-card" role="dialog" aria-modal="true">
+      <div class="auth-header">
+        <h3>Welcome to TimeSync</h3>
+        <p class="muted">Sign in to manage your schedule and share with friends.</p>
+      </div>
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="signin">Sign In</button>
+        <button class="auth-tab" data-tab="signup">Sign Up</button>
+      </div>
+      <div class="auth-tab-content" id="auth-tab-signin">
+        <label for="auth-signin-username">Username</label>
+        <input id="auth-signin-username" type="text" placeholder="your-username" autocomplete="username" />
+        <label for="auth-signin-password">Password</label>
+        <input id="auth-signin-password" type="password" placeholder="Password" autocomplete="current-password" />
+        <button id="auth-signin-btn" type="button" class="primary-button auth-submit-btn">Sign In</button>
+      </div>
+      <div class="auth-tab-content hidden" id="auth-tab-signup">
+        <label for="auth-signup-username">Username</label>
+        <input id="auth-signup-username" type="text" placeholder="choose-a-username" autocomplete="username" />
+        <label for="auth-signup-display">Display Name <span class="muted">(optional)</span></label>
+        <input id="auth-signup-display" type="text" placeholder="Your Name" />
+        <label for="auth-signup-password">Password</label>
+        <input id="auth-signup-password" type="password" placeholder="Min 6 characters" autocomplete="new-password" />
+        <label for="auth-signup-confirm">Confirm Password</label>
+        <input id="auth-signup-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" />
+        <button id="auth-signup-btn" type="button" class="primary-button auth-submit-btn">Create Account</button>
+      </div>
+      <div id="auth-status" class="muted auth-status"></div>
+    </div>
   </div>
 
   <!-- Schedule Import Modal -->
@@ -183,7 +214,7 @@
           <p>Drag this button to your bookmarks bar, then click it when you're on your CPP schedule page:</p>
           <div class="bookmarklet-drag-area">
             <a id="bookmarklet-link" class="bookmarklet-button" href="#" title="Drag me to your bookmarks bar!">
-              📅 Send to TimeSync
+              Send to TimeSync
             </a>
           </div>
           <div class="import-instructions">
@@ -191,8 +222,7 @@
             <ol>
               <li>Drag the button above to your browser's bookmarks bar</li>
               <li>Go to your CPP schedule page:<br>
-                <code>cmsweb.cms.cpp.edu</code> → Schedule Builder, or<br>
-                <code>my.cpp.edu</code> → Student Center
+                <code>cmsweb.cms.cpp.edu</code> or <code>my.cpp.edu</code>
               </li>
               <li>Make sure your schedule/classes are visible on the page</li>
               <li>Click the "Send to TimeSync" bookmark</li>
@@ -206,7 +236,7 @@
         <div class="import-upload-section">
           <p>Upload a screenshot of your schedule:</p>
           <div class="upload-dropzone" id="upload-dropzone">
-            <div class="upload-icon">📸</div>
+            <div class="upload-icon">+</div>
             <p>Drag & drop your schedule screenshot here</p>
             <p class="muted">or click to select a file</p>
             <input type="file" id="schedule-image-input" accept="image/*" style="display:none" />
@@ -269,6 +299,10 @@
       </div>
     </div>
   </div>
+
+  <!-- Hidden elements for backward compat -->
+  <input id="schedule-key" type="hidden" />
+  <input id="friend-user-key" type="hidden" />
 
   <script src="/static/app.js"></script>
 </body>

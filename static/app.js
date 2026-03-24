@@ -8,6 +8,7 @@ let activeProfileKey = null; // currently loaded profile ID in memory
 let comparisonContextKey = null; // user ID that current comparison state belongs to
 let comparisonDraftSourceUserKey = null; // source user for unsaved imported comparison draft
 let comparisonNamePromptResolver = null;
+let currentUser = null; // {username, displayName, friendCode} when authenticated
 const USER_KEY_STORAGE_KEY = "timesync_user_id";
 const USER_KEY_COOKIE_DAYS = 365;
 const USER_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{2,31}$/;
@@ -399,48 +400,269 @@ function isValidUserKey(value) {
 }
 
 function getProfileKey() {
-  return normalizeUserKeyInput(document.getElementById("schedule-key").value);
+  if (currentUser) return currentUser.username;
+  const el = document.getElementById("schedule-key");
+  return el ? normalizeUserKeyInput(el.value) : "";
 }
 
 function setWorkspaceLocked(locked) {
   document.body.classList.toggle("workspace-locked", Boolean(locked));
-
-  const gate = document.getElementById("workspace-gate");
-  if (gate) {
-    gate.classList.toggle("hidden", !locked);
-  }
-}
-
-function syncUserKeyInputs() {
-  const mainInput = document.getElementById("schedule-key");
-  const gateInput = document.getElementById("gate-user-key");
-  if (!mainInput || !gateInput) return;
-  if (document.activeElement === gateInput) return;
-  gateInput.value = normalizeUserKeyInput(mainInput.value);
 }
 
 function syncActiveUserDisplay() {
-  const display = document.getElementById("active-user-display");
-  const typedKey = getProfileKey();
-  setWorkspaceLocked(!activeProfileKey);
-  syncUserKeyInputs();
+  setWorkspaceLocked(!currentUser);
+  updateUserInfoBar();
+}
 
-  if (!display) return;
+function updateUserInfoBar() {
+  const infoBar = document.getElementById("user-info");
+  const nameEl = document.getElementById("user-display-name");
+  const codeEl = document.getElementById("user-friend-code");
+  const myCodeEl = document.getElementById("my-friend-code");
+  if (!infoBar) return;
 
-  if (activeProfileKey) {
-    display.textContent = `Current schedule: ${activeProfileKey}`;
-    display.className = "active-user-display profile-ready";
-    return;
+  if (currentUser) {
+    infoBar.classList.remove("hidden");
+    if (nameEl) nameEl.textContent = currentUser.displayName;
+    if (codeEl) codeEl.textContent = currentUser.friendCode;
+    if (myCodeEl) myCodeEl.textContent = currentUser.friendCode;
+  } else {
+    infoBar.classList.add("hidden");
+  }
+}
+
+// ---------- Auth ----------
+
+function showAuthModal() {
+  const modal = document.getElementById("auth-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+  }
+}
+
+function hideAuthModal() {
+  const modal = document.getElementById("auth-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+  }
+}
+
+function setAuthStatus(msg, isError = false) {
+  const el = document.getElementById("auth-status");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = isError ? "persist-error auth-status" : "muted auth-status";
+}
+
+async function checkAuth() {
+  try {
+    const res = await fetch("/api/auth/me");
+    const data = await res.json();
+    if (data.ok) {
+      currentUser = {
+        username: data.username,
+        displayName: data.displayName,
+        friendCode: data.friendCode,
+      };
+      hideAuthModal();
+      syncActiveUserDisplay();
+      // Set hidden schedule-key for backward compat
+      const skEl = document.getElementById("schedule-key");
+      if (skEl) skEl.value = currentUser.username;
+      await loadProfile();
+      return true;
+    }
+  } catch (_err) {
+    // Not authenticated
+  }
+  currentUser = null;
+  showAuthModal();
+  setWorkspaceLocked(true);
+  return false;
+}
+
+async function signIn(username, password) {
+  setAuthStatus("Signing in...");
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setAuthStatus(data.error || "Sign in failed.", true);
+      return false;
+    }
+    currentUser = {
+      username: data.username,
+      displayName: data.displayName,
+      friendCode: data.friendCode,
+    };
+    const skEl = document.getElementById("schedule-key");
+    if (skEl) skEl.value = currentUser.username;
+    hideAuthModal();
+    syncActiveUserDisplay();
+    await loadProfile();
+    return true;
+  } catch (err) {
+    setAuthStatus(`Error: ${String(err)}`, true);
+    return false;
+  }
+}
+
+async function signUp(username, password, displayName) {
+  setAuthStatus("Creating account...");
+  try {
+    const res = await fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, displayName }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setAuthStatus(data.error || "Sign up failed.", true);
+      return false;
+    }
+    currentUser = {
+      username: data.username,
+      displayName: data.displayName,
+      friendCode: data.friendCode,
+    };
+    const skEl = document.getElementById("schedule-key");
+    if (skEl) skEl.value = currentUser.username;
+    hideAuthModal();
+    syncActiveUserDisplay();
+    await loadProfile();
+    return true;
+  } catch (err) {
+    setAuthStatus(`Error: ${String(err)}`, true);
+    return false;
+  }
+}
+
+async function signOut() {
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } catch (_err) {
+    // Ignore
+  }
+  currentUser = null;
+  activeProfileKey = null;
+  comparisonContextKey = null;
+  replaceBusy(aBusy, []);
+  replaceBusy(bBusy, []);
+  replaceComparisonSchedules([]);
+  selectedComparisonId = null;
+  renderBusyList(aBusy, "a-list");
+  renderBusyList(bBusy, "b-list", markComparisonDirty);
+  renderComparisonSelect();
+  clearDaySelections();
+
+  // Clear form fields and reset to Sign In tab
+  const fields = ["auth-signin-username", "auth-signin-password", "auth-signup-username", "auth-signup-display", "auth-signup-password", "auth-signup-confirm"];
+  fields.forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+  setAuthStatus("");
+
+  // Reset to Sign In tab
+  document.querySelectorAll(".auth-tab").forEach((t) => t.classList.remove("active"));
+  const signinTab = document.querySelector('.auth-tab[data-tab="signin"]');
+  if (signinTab) signinTab.classList.add("active");
+  document.querySelectorAll(".auth-tab-content").forEach((c) => c.classList.add("hidden"));
+  const signinContent = document.getElementById("auth-tab-signin");
+  if (signinContent) signinContent.classList.remove("hidden");
+
+  showAuthModal();
+  setWorkspaceLocked(true);
+  updateUserInfoBar();
+}
+
+function initAuth() {
+  // Tab switching
+  const tabs = document.querySelectorAll(".auth-tab");
+  tabs.forEach((tab) => {
+    tab.onclick = () => {
+      tabs.forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      document.querySelectorAll(".auth-tab-content").forEach((c) => c.classList.add("hidden"));
+      const target = document.getElementById(`auth-tab-${tab.dataset.tab}`);
+      if (target) target.classList.remove("hidden");
+      setAuthStatus("");
+    };
+  });
+
+  // Sign In
+  const signInBtn = document.getElementById("auth-signin-btn");
+  if (signInBtn) {
+    signInBtn.onclick = () => {
+      const username = (document.getElementById("auth-signin-username").value || "").trim().toLowerCase();
+      const password = document.getElementById("auth-signin-password").value || "";
+      if (!username || !password) {
+        setAuthStatus("Username and password are required.", true);
+        return;
+      }
+      signIn(username, password);
+    };
   }
 
-  if (typedKey) {
-    display.textContent = `Current schedule: not loaded (${typedKey})`;
-    display.className = "active-user-display profile-pending";
-    return;
+  // Sign Up
+  const signUpBtn = document.getElementById("auth-signup-btn");
+  if (signUpBtn) {
+    signUpBtn.onclick = () => {
+      const username = (document.getElementById("auth-signup-username").value || "").trim().toLowerCase();
+      const displayName = (document.getElementById("auth-signup-display").value || "").trim();
+      const password = document.getElementById("auth-signup-password").value || "";
+      const confirm = document.getElementById("auth-signup-confirm").value || "";
+      if (!username) {
+        setAuthStatus("Username is required.", true);
+        return;
+      }
+      if (password.length < 6) {
+        setAuthStatus("Password must be at least 6 characters.", true);
+        return;
+      }
+      if (password !== confirm) {
+        setAuthStatus("Passwords do not match.", true);
+        return;
+      }
+      signUp(username, password, displayName);
+    };
   }
 
-  display.textContent = "Current schedule: not loaded";
-  display.className = "active-user-display";
+  // Enter key on auth inputs
+  ["auth-signin-username", "auth-signin-password"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); signInBtn?.click(); }
+    });
+  });
+  ["auth-signup-username", "auth-signup-display", "auth-signup-password", "auth-signup-confirm"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); signUpBtn?.click(); }
+    });
+  });
+
+  // Sign Out
+  const logoutBtn = document.getElementById("logout-btn");
+  if (logoutBtn) logoutBtn.onclick = signOut;
+
+  // Copy friend code buttons
+  const copyBtns = ["copy-friend-code", "copy-friend-code-hero"];
+  copyBtns.forEach((btnId) => {
+    const btn = document.getElementById(btnId);
+    if (btn) {
+      btn.onclick = () => {
+        if (!currentUser?.friendCode) return;
+        navigator.clipboard.writeText(currentUser.friendCode).then(() => {
+          btn.textContent = "Copied!";
+          setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+        }).catch(() => {});
+      };
+    }
+  });
 }
 
 function applyTheme(theme) {
@@ -931,17 +1153,10 @@ function maybeSaveDraftIntoComparisons() {
 
 async function loadProfile() {
   const key = getProfileKey();
-  persistUserKey(key);
   if (!key) {
     activeProfileKey = null;
     syncActiveUserDisplay();
-    setPersistStatus("Enter your User ID first.", true);
-    return;
-  }
-  if (!isValidUserKey(key)) {
-    activeProfileKey = null;
-    syncActiveUserDisplay();
-    setPersistStatus("User ID must be 3-32 chars: lowercase letters, numbers, '-' or '_'.", true);
+    setPersistStatus("Sign in to load your schedule.", true);
     return;
   }
 
@@ -953,9 +1168,16 @@ async function loadProfile() {
     const data = await res.json();
 
     if (!data.ok) {
-      activeProfileKey = null;
+      // Profile doesn't exist yet — that's ok for new accounts
+      if (res.status === 401) {
+        setPersistStatus("Session expired. Please sign in again.", true);
+        showAuthModal();
+        return;
+      }
+      activeProfileKey = key;
+      comparisonContextKey = key;
       syncActiveUserDisplay();
-      setPersistStatus(data.error || "Failed to load profile.", true);
+      setPersistStatus("New account — add busy blocks and save.");
       return;
     }
 
@@ -972,10 +1194,9 @@ async function loadProfile() {
     clearDaySelections();
 
     const when = data.updatedAt
-      ? `Loaded profile "${key}" (updated ${new Date(data.updatedAt).toLocaleString()}).`
-      : `Loaded new profile "${key}".`;
+      ? `Schedule loaded (updated ${new Date(data.updatedAt).toLocaleString()}).`
+      : "Schedule loaded.";
     setPersistStatus(when);
-    persistUserKey(key);
   } catch (err) {
     activeProfileKey = null;
     syncActiveUserDisplay();
@@ -1001,13 +1222,8 @@ function ensureProfileContextForUpdate(key) {
 async function saveProfile(options = {}) {
   const { silent = false, requireLoadedContext = true } = options;
   const key = getProfileKey();
-  persistUserKey(key);
-  if (!key) {
-    setPersistStatus("Enter your User ID first.", true);
-    return false;
-  }
-  if (!isValidUserKey(key)) {
-    setPersistStatus("User ID must be 3-32 chars: lowercase letters, numbers, '-' or '_'.", true);
+  if (!key || !currentUser) {
+    setPersistStatus("Sign in to save your schedule.", true);
     return false;
   }
   if (requireLoadedContext && !ensureProfileContextForUpdate(key)) {
@@ -1021,7 +1237,7 @@ async function saveProfile(options = {}) {
   }
 
   maybeSaveDraftIntoComparisons();
-  if (!silent) setPersistStatus("Updating schedule...");
+  if (!silent) setPersistStatus("Saving...");
 
   try {
     const payload = {
@@ -1047,51 +1263,61 @@ async function saveProfile(options = {}) {
     const data = await res.json();
 
     if (!data.ok) {
-      setPersistStatus(data.error || "Failed to update schedule.", true);
+      if (res.status === 401) {
+        setPersistStatus("Session expired. Please sign in again.", true);
+        showAuthModal();
+        return false;
+      }
+      setPersistStatus(data.error || "Failed to save schedule.", true);
       return false;
     }
 
     const when = data.updatedAt
       ? new Date(data.updatedAt).toLocaleString()
       : "just now";
-    if (!silent) setPersistStatus(`Updated schedule "${key}" at ${when}.`);
+    if (!silent) setPersistStatus(`Schedule saved at ${when}.`);
     activeProfileKey = key;
     comparisonContextKey = key;
-    persistUserKey(key);
     syncActiveUserDisplay();
     return true;
   } catch (err) {
-    setPersistStatus(`Error updating schedule: ${String(err)}`, true);
+    setPersistStatus(`Error saving schedule: ${String(err)}`, true);
     return false;
   }
 }
 
 async function importFriendSchedule() {
   const key = getProfileKey();
-  if (!key) {
-    setImportStatus("Enter your User ID first.", true);
-    return;
-  }
-  if (!ensureProfileContextForUpdate(key)) {
-    setImportStatus("Load this profile or create a new schedule before importing friends.", true);
+  if (!key || !currentUser) {
+    setImportStatus("Sign in first.", true);
     return;
   }
 
-  const friendKey = document.getElementById("friend-user-key").value.trim().toLowerCase();
-  if (!friendKey) {
-    setImportStatus("Enter a friend User ID to import.", true);
-    return;
-  }
-  if (friendKey === key) {
-    setImportStatus("Use a different user ID. You cannot import your own schedule.", true);
+  // Try friend code input first, fall back to friend-user-key for backward compat
+  const codeInput = document.getElementById("friend-code-input");
+  const legacyInput = document.getElementById("friend-user-key");
+  const friendCode = (codeInput?.value || "").trim().toUpperCase();
+  const friendKey = (legacyInput?.value || "").trim().toLowerCase();
+
+  if (!friendCode && !friendKey) {
+    setImportStatus("Enter a friend code to import.", true);
     return;
   }
 
   setImportStatus("Importing friend schedule...");
 
   try {
-    const res = await fetch(`/api/public-schedules/${encodeURIComponent(friendKey)}`);
-    const data = await res.json();
+    let res, data;
+    let friendLabel;
+    if (friendCode) {
+      res = await fetch(`/api/public-schedules/by-code/${encodeURIComponent(friendCode)}`);
+      data = await res.json();
+      friendLabel = data.displayName || friendCode;
+    } else {
+      res = await fetch(`/api/public-schedules/${encodeURIComponent(friendKey)}`);
+      data = await res.json();
+      friendLabel = friendKey;
+    }
 
     if (!data.ok) {
       setImportStatus(data.error || "Failed to import friend schedule.", true);
@@ -1100,19 +1326,20 @@ async function importFriendSchedule() {
 
     const name = await requestComparisonName({
       title: "Name Imported Comparison",
-      message: `Enter a name for ${friendKey}'s schedule.`,
+      message: `Enter a name for ${friendLabel}'s schedule.`,
       placeholder: "e.g. James - Work Week",
-      defaultValue: friendKey,
+      defaultValue: friendLabel,
     });
     if (!name) {
       setImportStatus("Import canceled.");
       return;
     }
 
+    const sourceKey = data.userKey || friendKey || friendCode;
     const created = createComparisonSchedule({
       name,
       busy: data.mySchedule?.busy || [],
-      sourceUserKey: friendKey,
+      sourceUserKey: sourceKey,
     });
     if (!created) {
       setImportStatus("Comparison name is required.", true);
@@ -1121,7 +1348,8 @@ async function importFriendSchedule() {
 
     comparisonContextKey = key;
     setComparisonStatus(`Saved "${created.name}".`);
-    setImportStatus(`Imported "${friendKey}" as "${created.name}".`);
+    setImportStatus(`Imported "${friendLabel}" as "${created.name}".`);
+    if (codeInput) codeInput.value = "";
     await saveProfile({ silent: true });
   } catch (err) {
     setImportStatus(`Import error: ${String(err)}`, true);
@@ -1847,18 +2075,18 @@ if (deleteComparisonBtn) {
 }
 document.getElementById("comparison-name").oninput = markComparisonDirty;
 
-document.getElementById("load-profile").onclick = async () => {
-  await loadProfile();
-};
+const loadProfileBtn = document.getElementById("load-profile");
+if (loadProfileBtn) loadProfileBtn.onclick = async () => { await loadProfile(); };
 const updateProfileBtn = document.getElementById("update-profile") || document.getElementById("save-profile");
 if (updateProfileBtn) {
-  updateProfileBtn.onclick = () => saveProfile({ silent: false, requireLoadedContext: true });
+  updateProfileBtn.onclick = () => saveProfile({ silent: false, requireLoadedContext: false });
 }
 const createProfileBtn = document.getElementById("create-profile");
 if (createProfileBtn) {
   createProfileBtn.onclick = createNewSchedule;
 }
-document.getElementById("import-friend").onclick = importFriendSchedule;
+const importFriendBtn = document.getElementById("import-friend");
+if (importFriendBtn) importFriendBtn.onclick = importFriendSchedule;
 
 // ---------- Schedule Import System ----------
 
@@ -2301,8 +2529,7 @@ function checkUrlForImportData() {
 initThemeToggle();
 initComparisonNameModal();
 initImportModal();
-initUserKeyInput();
-initWorkspaceGate();
+initAuth();
 clearDaySelections();
 renderBusyList(aBusy, "a-list");
 renderBusyList(bBusy, "b-list", markComparisonDirty);
@@ -2311,9 +2538,5 @@ renderComparisonSelect();
 // Check for import data in URL (from bookmarklet redirect)
 checkUrlForImportData();
 
-// Auto-load remembered profile key if present.
-if (getProfileKey()) {
-  loadProfile();
-} else {
-  setPersistStatus("Enter your User ID, then click Load Profile or Create New Schedule.");
-}
+// Check auth session — auto-load profile if authenticated, show auth modal if not
+checkAuth();

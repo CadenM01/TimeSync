@@ -1,6 +1,8 @@
 import io
 import os
+import random
 import re
+import string
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -21,6 +23,12 @@ if _env_path.is_file():
                     os.environ[_key] = _val
 
 from flask import Flask, jsonify, render_template, request
+from werkzeug.security import generate_password_hash, check_password_hash
+
+try:
+    from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+except ImportError:
+    LoginManager = None
 
 try:
     import certifi
@@ -42,8 +50,10 @@ except ImportError:
     pytesseract = None
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
 
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+USERNAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{2,31}$")
 
 MONGODB_URI = os.environ.get("MONGODB_URI", "").strip()
 MONGODB_DB = os.environ.get("MONGODB_DB", "timesync").strip() or "timesync"
@@ -80,15 +90,64 @@ def schedules_collection():
     return mongo_client[MONGODB_DB]["schedules"]
 
 
+def users_collection():
+    if not mongo_client:
+        return None
+    return mongo_client[MONGODB_DB]["users"]
+
+
 def ensure_indexes():
     global _indexes_initialized
     if _indexes_initialized:
         return
     col = schedules_collection()
-    if col is None:
-        return
-    col.create_index("userKey", unique=True)
+    if col is not None:
+        col.create_index("userKey", unique=True)
+    ucol = users_collection()
+    if ucol is not None:
+        ucol.create_index("username", unique=True)
+        ucol.create_index("friendCode", unique=True)
     _indexes_initialized = True
+
+
+# ---------- Auth helpers ----------
+
+FRIEND_CODE_CHARS = "".join(
+    c for c in string.ascii_uppercase + string.digits if c not in "0OI1L"
+)
+
+
+def generate_friend_code(length: int = 6) -> str:
+    col = users_collection()
+    for _ in range(20):
+        code = "".join(random.choices(FRIEND_CODE_CHARS, k=length))
+        if col is None or not col.find_one({"friendCode": code}):
+            return code
+    return "".join(random.choices(FRIEND_CODE_CHARS, k=length))
+
+
+if LoginManager is not None:
+    class User(UserMixin):
+        def __init__(self, doc):
+            self.id = doc["username"]
+            self.username = doc["username"]
+            self.display_name = doc.get("displayName", doc["username"])
+            self.friend_code = doc.get("friendCode", "")
+
+    login_manager = LoginManager()
+    login_manager.init_app(app)
+
+    @login_manager.user_loader
+    def load_user(username):
+        col = users_collection()
+        if col is None:
+            return None
+        doc = col.find_one({"username": username})
+        return User(doc) if doc else None
+
+    @login_manager.unauthorized_handler
+    def unauthorized():
+        return jsonify({"ok": False, "error": "Authentication required."}), 401
 
 
 def now_iso() -> str:
@@ -385,6 +444,114 @@ def index():
     return render_template("index.html")
 
 
+# ---------- Auth routes ----------
+
+@app.get("/api/auth/me")
+def auth_me():
+    if LoginManager is None:
+        return jsonify({"ok": False, "error": "flask-login not installed."}), 500
+    if current_user.is_authenticated:
+        return jsonify({
+            "ok": True,
+            "username": current_user.username,
+            "displayName": current_user.display_name,
+            "friendCode": current_user.friend_code,
+        })
+    return jsonify({"ok": False, "error": "Not authenticated."}), 401
+
+
+@app.post("/api/auth/signup")
+def auth_signup():
+    if LoginManager is None:
+        return jsonify({"ok": False, "error": "flask-login not installed."}), 500
+
+    unavailable = db_unavailable_response()
+    if unavailable:
+        return unavailable
+
+    data = request.get_json(force=True) or {}
+    username = normalize_user_key(data.get("username", ""))
+    password = (data.get("password") or "").strip()
+    display_name = (data.get("displayName") or "").strip()
+
+    if not USERNAME_PATTERN.match(username):
+        return jsonify({"ok": False, "error": "Username must be 3-32 chars: lowercase letters, numbers, '-' or '_'."}), 400
+    if len(password) < 6:
+        return jsonify({"ok": False, "error": "Password must be at least 6 characters."}), 400
+
+    col = users_collection()
+    try:
+        ensure_indexes()
+        if col.find_one({"username": username}):
+            return jsonify({"ok": False, "error": "Username already taken."}), 409
+
+        friend_code = generate_friend_code()
+        user_doc = {
+            "username": username,
+            "passwordHash": generate_password_hash(password),
+            "displayName": display_name or username,
+            "friendCode": friend_code,
+            "createdAt": now_iso(),
+        }
+        col.insert_one(user_doc)
+
+        user = User(user_doc)
+        login_user(user, remember=True)
+
+        return jsonify({
+            "ok": True,
+            "username": username,
+            "displayName": user.display_name,
+            "friendCode": friend_code,
+        })
+    except PyMongoError as err:
+        return jsonify({"ok": False, "error": str(err)}), 500
+
+
+@app.post("/api/auth/login")
+def auth_login():
+    if LoginManager is None:
+        return jsonify({"ok": False, "error": "flask-login not installed."}), 500
+
+    unavailable = db_unavailable_response()
+    if unavailable:
+        return unavailable
+
+    data = request.get_json(force=True) or {}
+    username = normalize_user_key(data.get("username", ""))
+    password = (data.get("password") or "").strip()
+
+    if not username or not password:
+        return jsonify({"ok": False, "error": "Username and password are required."}), 400
+
+    col = users_collection()
+    try:
+        ensure_indexes()
+        user_doc = col.find_one({"username": username})
+        if not user_doc or not check_password_hash(user_doc["passwordHash"], password):
+            return jsonify({"ok": False, "error": "Invalid username or password."}), 401
+
+        user = User(user_doc)
+        login_user(user, remember=True)
+
+        return jsonify({
+            "ok": True,
+            "username": username,
+            "displayName": user.display_name,
+            "friendCode": user.friend_code,
+        })
+    except PyMongoError as err:
+        return jsonify({"ok": False, "error": str(err)}), 500
+
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    if LoginManager is None:
+        return jsonify({"ok": False, "error": "flask-login not installed."}), 500
+    logout_user()
+    return jsonify({"ok": True})
+
+
 @app.post("/compare")
 def compare():
     data = request.get_json(force=True)
@@ -427,8 +594,21 @@ def db_health():
         return jsonify({"ok": False, "error": str(err)}), 500
 
 
+def _require_auth():
+    """Check if user is authenticated. Returns None if ok, or a JSON error response."""
+    if LoginManager is None:
+        return None  # Auth not available, allow through
+    if not current_user.is_authenticated:
+        return jsonify({"ok": False, "error": "Authentication required."}), 401
+    return None
+
+
 @app.get("/api/profiles/<user_key>")
 def get_profile(user_key):
+    auth_err = _require_auth()
+    if auth_err:
+        return auth_err
+
     unavailable = db_unavailable_response()
     if unavailable:
         return unavailable
@@ -436,6 +616,10 @@ def get_profile(user_key):
     key = normalize_user_key(user_key)
     if not key:
         return jsonify({"ok": False, "error": "user_key is required"}), 400
+
+    # Users can only access their own profile
+    if LoginManager and current_user.is_authenticated and key != current_user.username:
+        return jsonify({"ok": False, "error": "Access denied."}), 403
 
     col = schedules_collection()
     try:
@@ -450,6 +634,10 @@ def get_profile(user_key):
 
 @app.post("/api/profiles/<user_key>")
 def save_profile(user_key):
+    auth_err = _require_auth()
+    if auth_err:
+        return auth_err
+
     unavailable = db_unavailable_response()
     if unavailable:
         return unavailable
@@ -457,6 +645,9 @@ def save_profile(user_key):
     key = normalize_user_key(user_key)
     if not key:
         return jsonify({"ok": False, "error": "user_key is required"}), 400
+
+    if LoginManager and current_user.is_authenticated and key != current_user.username:
+        return jsonify({"ok": False, "error": "Access denied."}), 403
 
     data = request.get_json(force=True) or {}
     col = schedules_collection()
@@ -501,6 +692,49 @@ def get_public_schedule(user_key):
             "updatedAt": profile.get("updatedAt"),
         }
     )
+
+
+@app.get("/api/public-schedules/by-code/<friend_code>")
+def get_public_schedule_by_code(friend_code):
+    unavailable = db_unavailable_response()
+    if unavailable:
+        return unavailable
+
+    code = (friend_code or "").strip().upper()
+    if not code or len(code) < 4:
+        return jsonify({"ok": False, "error": "Invalid friend code."}), 400
+
+    ucol = users_collection()
+    if ucol is None:
+        return jsonify({"ok": False, "error": "Database not configured."}), 500
+
+    try:
+        ensure_indexes()
+        user_doc = ucol.find_one({"friendCode": code})
+    except PyMongoError as err:
+        return jsonify({"ok": False, "error": str(err)}), 500
+
+    if not user_doc:
+        return jsonify({"ok": False, "error": "Friend code not found."}), 404
+
+    username = user_doc["username"]
+    col = schedules_collection()
+    try:
+        doc = col.find_one({"userKey": username}, {"_id": 0})
+    except PyMongoError as err:
+        return jsonify({"ok": False, "error": str(err)}), 500
+
+    if not doc:
+        return jsonify({"ok": False, "error": "Friend has no schedule yet."}), 404
+
+    profile = normalize_profile_doc(doc, username)
+    return jsonify({
+        "ok": True,
+        "userKey": username,
+        "displayName": user_doc.get("displayName", username),
+        "mySchedule": profile["mySchedule"],
+        "updatedAt": profile.get("updatedAt"),
+    })
 
 
 @app.post("/api/profiles/<user_key>/comparison-schedules/import")
