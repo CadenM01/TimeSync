@@ -1,8 +1,27 @@
+import io
 import os
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 
+# Auto-load .env file if present (for local development)
+_env_path = Path(__file__).resolve().parent / ".env"
+if _env_path.is_file():
+    with open(_env_path) as _ef:
+        for _line in _ef:
+            _line = _line.strip()
+            if not _line or _line.startswith("#"):
+                continue
+            if "=" in _line:
+                _key, _, _val = _line.partition("=")
+                _key = _key.strip()
+                _val = _val.strip().strip("'\"")
+                if _key and _key not in os.environ:
+                    os.environ[_key] = _val
+
 from flask import Flask, jsonify, render_template, request
+
 try:
     import certifi
 except ImportError:
@@ -14,6 +33,13 @@ try:
 except ImportError:
     MongoClient = None
     PyMongoError = Exception
+
+try:
+    from PIL import Image
+    import pytesseract
+except ImportError:
+    Image = None
+    pytesseract = None
 
 app = Flask(__name__)
 
@@ -646,6 +672,556 @@ def save_schedule(user_key):
         return jsonify({"ok": False, "error": str(err)}), 500
 
     return jsonify({"ok": True, "userKey": key, "updatedAt": profile["updatedAt"]})
+
+
+# ---------- Schedule Import / Parsing ----------
+
+# Day abbreviation mappings from various formats to our standard DAYS
+DAY_MAP = {
+    "mo": "Mon", "mon": "Mon", "monday": "Mon", "m": "Mon",
+    "tu": "Tue", "tue": "Tue", "tuesday": "Tue", "t": "Tue",
+    "we": "Wed", "wed": "Wed", "wednesday": "Wed", "w": "Wed",
+    "th": "Thu", "thu": "Thu", "thursday": "Thu", "r": "Thu",
+    "fr": "Fri", "fri": "Fri", "friday": "Fri", "f": "Fri",
+    "sa": "Sat", "sat": "Sat", "saturday": "Sat",
+    "su": "Sun", "sun": "Sun", "sunday": "Sun",
+}
+
+# PeopleSoft uses compact day codes like "MoWeFr" or "TuTh"
+PEOPLESOFT_DAY_PATTERN = re.compile(r"(Mo|Tu|We|Th|Fr|Sa|Su)", re.IGNORECASE)
+
+
+def parse_time_str(time_str: str):
+    """Parse a time string like '9:00 AM', '09:00', '2:30pm', '14:30' into HH:MM 24-hour."""
+    time_str = time_str.strip()
+
+    # Try 12-hour format: 9:00 AM, 9:00AM, 2:30 pm
+    m = re.match(r"(\d{1,2}):(\d{2})\s*(am|pm|a\.m\.|p\.m\.)", time_str, re.IGNORECASE)
+    if m:
+        h = int(m.group(1))
+        mi = int(m.group(2))
+        ap = m.group(3).lower().replace(".", "")
+        if ap == "pm" and h != 12:
+            h += 12
+        elif ap == "am" and h == 12:
+            h = 0
+        return f"{h:02d}:{mi:02d}"
+
+    # Try 24-hour format: 09:00, 14:30
+    m = re.match(r"(\d{1,2}):(\d{2})$", time_str)
+    if m:
+        h = int(m.group(1))
+        mi = int(m.group(2))
+        if 0 <= h <= 23 and 0 <= mi <= 59:
+            return f"{h:02d}:{mi:02d}"
+
+    return None
+
+
+def parse_days_from_code(code: str):
+    """Parse PeopleSoft day codes like 'MoWeFr' or 'TuTh' into list of standard day names."""
+    matches = PEOPLESOFT_DAY_PATTERN.findall(code)
+    if matches:
+        return [DAY_MAP.get(m.lower(), None) for m in matches if m.lower() in DAY_MAP]
+    return []
+
+
+def parse_days_from_text(text: str):
+    """Parse day names from text like 'Mon, Wed, Fri' or 'Monday Wednesday Friday'."""
+    days = []
+    # Try to match full/abbreviated day names
+    tokens = re.split(r"[,\s/&]+", text.strip())
+    for tok in tokens:
+        tok_lower = tok.lower().rstrip(".")
+        if tok_lower in DAY_MAP:
+            days.append(DAY_MAP[tok_lower])
+    return days
+
+
+def parse_schedule_text(raw_text: str):
+    """
+    Parse schedule text in various formats and return busy blocks.
+
+    Supports formats like:
+    - "CS 4080-01: Concepts of Prgrming Languages | MoWeFr 09:00 AM - 09:50 AM | BLDG 8 345"
+    - "Monday 09:00 AM 09:50 AM CS 4080"
+    - Day sections like "__Monday__" followed by course/building lines and "09:00 am 09:50 am"
+    - Tabular pasted text from CPP schedule pages
+    - JSON array of {day, start, end} or {days, start, end, name}
+    """
+    raw_text = raw_text.strip()
+    if not raw_text:
+        return []
+
+    # Try JSON first
+    try:
+        import json
+        data = json.loads(raw_text)
+        if isinstance(data, list):
+            return _parse_json_schedule(data)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    busy_blocks = []
+
+    # Strategy 1: Look for lines with time ranges and day codes
+    # Pattern: days_code time_start - time_end  OR  time_start - time_end days_code
+    time_range_pattern = re.compile(
+        r"(\d{1,2}:\d{2}\s*(?:am|pm|AM|PM)?)\s*[-–—to]+\s*(\d{1,2}:\d{2}\s*(?:am|pm|AM|PM)?)"
+    )
+
+    lines = raw_text.split("\n")
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Find time ranges in this line
+        time_matches = list(time_range_pattern.finditer(line))
+        if not time_matches:
+            continue
+
+        # Find days in this line
+        days = []
+
+        # Try PeopleSoft compact codes first (MoWeFr, TuTh)
+        ps_matches = list(PEOPLESOFT_DAY_PATTERN.finditer(line))
+        if ps_matches:
+            # Check if they form a contiguous block (PeopleSoft style)
+            for ps_m in ps_matches:
+                d = DAY_MAP.get(ps_m.group(1).lower())
+                if d and d not in days:
+                    days.append(d)
+
+        # If no PeopleSoft codes, try standard day names
+        if not days:
+            days = parse_days_from_text(line)
+
+        if not days:
+            # Try to get days from context (look at nearby lines)
+            # Check if this line might be under a day header
+            for prev_line in reversed(lines[:lines.index(line) if line in lines else 0]):
+                prev_line = prev_line.strip()
+                ctx_days = parse_days_from_text(prev_line)
+                if ctx_days:
+                    days = ctx_days
+                    break
+
+        if not days:
+            continue
+
+        for tm in time_matches:
+            start_str = tm.group(1)
+            end_str = tm.group(2)
+
+            start = parse_time_str(start_str)
+            end = parse_time_str(end_str)
+
+            if not start or not end:
+                continue
+            if start >= end:
+                continue
+
+            # Extract course name if present
+            name = _extract_course_name(line)
+
+            for day in days:
+                busy_blocks.append({
+                    "day": day,
+                    "start": start,
+                    "end": end,
+                    "name": name or "Busy",
+                })
+
+    # Strategy 2: If no time ranges found, try block-by-block parsing
+    # (for formats where each line is "Day StartTime EndTime CourseName")
+    if not busy_blocks:
+        busy_blocks = _parse_day_section_schedule(lines)
+
+    if not busy_blocks:
+        busy_blocks = _parse_line_by_line(lines)
+
+    return busy_blocks
+
+
+def _parse_json_schedule(data):
+    """Parse a JSON array of schedule entries."""
+    blocks = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+
+        days = []
+        if "day" in item:
+            d = DAY_MAP.get(str(item["day"]).lower().strip(), None)
+            if d:
+                days = [d]
+            elif str(item["day"]).strip() in DAYS:
+                days = [str(item["day"]).strip()]
+        if "days" in item:
+            if isinstance(item["days"], list):
+                for d in item["days"]:
+                    mapped = DAY_MAP.get(str(d).lower().strip(), str(d).strip())
+                    if mapped in DAYS:
+                        days.append(mapped)
+            elif isinstance(item["days"], str):
+                days = parse_days_from_code(item["days"]) or parse_days_from_text(item["days"])
+
+        start = parse_time_str(str(item.get("start", "")))
+        end = parse_time_str(str(item.get("end", "")))
+        name = item.get("name", item.get("course", item.get("title", "Busy")))
+
+        if days and start and end and start < end:
+            for day in days:
+                blocks.append({"day": day, "start": start, "end": end, "name": name})
+
+    return blocks
+
+
+def _extract_course_name(line: str):
+    """Try to extract a course name like 'CS 4080-01' from a line."""
+    m = re.search(r"([A-Z]{2,5}\s*\d{3,5}(?:\s*-\s*\d{1,3})?)", line, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _parse_day_section_schedule(lines):
+    """
+    Parse day-by-day schedule text such as:
+
+    __Monday__
+    CS 4080-01: Concepts of Programming Languages
+    Building: BLDG 8 345
+    09:00 am 09:50 am
+    """
+    blocks = []
+    current_day = None
+    pending_name = None
+    pending_start_time = None  # For when start/end times are on separate lines
+    time_pattern = re.compile(r"(\d{1,2}:\d{2}\s*(?:am|pm|AM|PM)?)")
+    day_header_pattern = re.compile(
+        r"^[_*\s`>#-]*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[_*\s`>#-]*$",
+        re.IGNORECASE,
+    )
+
+    ignored_prefixes = (
+        "building:",
+        "room:",
+        "location:",
+        "instructor:",
+    )
+    ignored_exact = {
+        "hybrid synchronous",
+        "hybrid asynchronous",
+        "synchronous",
+        "asynchronous",
+        "online",
+        "hybrid",
+    }
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        day_match = day_header_pattern.match(line)
+        if day_match:
+            current_day = DAY_MAP.get(day_match.group(1).lower())
+            pending_name = None
+            pending_start_time = None
+            continue
+
+        if not current_day:
+            continue
+
+        normalized = line.lower().strip()
+        if normalized.startswith(ignored_prefixes) or normalized in ignored_exact:
+            continue
+
+        times = time_pattern.findall(line)
+        if len(times) >= 2:
+            # Both times on the same line: "09:00 am 09:50 am"
+            start = parse_time_str(times[0])
+            end = parse_time_str(times[1])
+            if start and end and start < end:
+                blocks.append({
+                    "day": current_day,
+                    "start": start,
+                    "end": end,
+                    "name": pending_name or _extract_course_name(line) or "Class",
+                })
+            pending_name = None
+            pending_start_time = None
+            continue
+
+        if len(times) == 1:
+            # Single time on a line — could be start or end of a split pair
+            parsed_time = parse_time_str(times[0])
+            if parsed_time and pending_start_time:
+                # This is the end time paired with the pending start
+                if pending_start_time < parsed_time:
+                    blocks.append({
+                        "day": current_day,
+                        "start": pending_start_time,
+                        "end": parsed_time,
+                        "name": pending_name or "Class",
+                    })
+                pending_name = None
+                pending_start_time = None
+            elif parsed_time:
+                # This is the start time — wait for the next time line
+                pending_start_time = parsed_time
+            continue
+
+        # Non-time, non-ignored line — check for course name
+        pending_start_time = None  # Reset if a non-time line interrupts
+        course_name = _extract_course_name(line)
+        if course_name:
+            pending_name = course_name
+
+    return blocks
+
+
+def _parse_line_by_line(lines):
+    """Parse schedule where each line contains a day, start time, and end time."""
+    blocks = []
+    time_pattern = re.compile(r"(\d{1,2}:\d{2}\s*(?:am|pm|AM|PM)?)")
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        days = parse_days_from_text(line) or parse_days_from_code(line)
+        if not days:
+            continue
+
+        times = time_pattern.findall(line)
+        if len(times) >= 2:
+            start = parse_time_str(times[0])
+            end = parse_time_str(times[1])
+            name = _extract_course_name(line)
+
+            if start and end and start < end:
+                for day in days:
+                    blocks.append({"day": day, "start": start, "end": end, "name": name or "Busy"})
+
+    return blocks
+
+
+def parse_schedule_from_image(image_bytes: bytes):
+    """
+    Use OCR to extract text from a schedule image.
+    Single pass with preprocessing — no multi-pass to avoid duplicates.
+    Returns (text, error_string).
+    """
+    if Image is None or pytesseract is None:
+        return None, "OCR dependencies (Pillow, pytesseract) are not installed."
+
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+
+        # Convert to RGB if needed
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Upscale small images
+        w, h = img.size
+        if w < 2000:
+            scale = 2000 / w
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+        # Convert to grayscale and enhance
+        gray = img.convert("L")
+        try:
+            from PIL import ImageEnhance
+            enhanced = gray.convert("RGB")
+            enhanced = ImageEnhance.Contrast(enhanced).enhance(1.8)
+            enhanced = ImageEnhance.Sharpness(enhanced).enhance(1.5)
+            gray = enhanced.convert("L")
+        except Exception:
+            pass
+
+        # Single OCR pass with auto page segmentation
+        text = pytesseract.image_to_string(gray, config="--oem 3 --psm 3")
+
+        # Also try structured extraction
+        structured_lines = []
+        try:
+            tsv_data = pytesseract.image_to_data(
+                gray, config="--oem 3 --psm 3",
+                output_type=pytesseract.Output.DICT
+            )
+            lines_by_block = {}
+            n = len(tsv_data.get("text", []))
+            for i in range(n):
+                t = str(tsv_data["text"][i]).strip()
+                if not t:
+                    continue
+                key = (tsv_data["block_num"][i], tsv_data["par_num"][i], tsv_data["line_num"][i])
+                if key not in lines_by_block:
+                    lines_by_block[key] = []
+                lines_by_block[key].append(t)
+
+            for key in sorted(lines_by_block.keys()):
+                structured_lines.append(" ".join(lines_by_block[key]))
+        except Exception:
+            pass
+
+        # Combine: prefer structured if available, fall back to raw
+        if structured_lines:
+            combined = text + "\n" + "\n".join(structured_lines)
+        else:
+            combined = text or ""
+
+        return combined, None
+
+    except Exception as e:
+        return None, f"OCR failed: {str(e)}"
+
+
+def _parse_schedule_blocks_from_ocr(ocr_text: str):
+    """
+    Parse OCR output from schedule images. Tries standard parser first,
+    then falls back to day-header + time-pair heuristics.
+    Always deduplicates by (day, start, end).
+    """
+    if not ocr_text:
+        return []
+
+    # Try standard parser first
+    blocks = parse_schedule_text(ocr_text)
+
+    # Also try OCR-specific parsing with day headers
+    lines = ocr_text.split("\n")
+    course_re = re.compile(r"[A-Z]{2,5}\s*\d{3,5}(?:\s*[-:]\s*\d{1,3})?", re.IGNORECASE)
+    time_re = re.compile(r"(\d{1,2}:\d{2}\s*(?:am|pm|AM|PM)?)")
+    day_header_re = re.compile(
+        r"^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b", re.IGNORECASE
+    )
+
+    current_day = None
+    pending_start = None
+    ocr_blocks = []
+
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+
+        day_match = day_header_re.match(line)
+        if day_match:
+            current_day = DAY_MAP.get(day_match.group(1).lower())
+            pending_start = None
+            continue
+
+        if not current_day:
+            continue
+
+        times = time_re.findall(line)
+
+        # Two times on same line = start and end
+        if len(times) >= 2:
+            start = parse_time_str(times[0])
+            end = parse_time_str(times[1])
+            if start and end and start < end:
+                name = None
+                for offset in [0, -1, -2, 1, 2]:
+                    idx = i + offset
+                    if 0 <= idx < len(lines):
+                        m = course_re.search(lines[idx])
+                        if m:
+                            name = m.group(0).strip()
+                            break
+                ocr_blocks.append({"day": current_day, "start": start, "end": end, "name": name or "Class"})
+            pending_start = None
+
+        # Single time on a line = start or end
+        elif len(times) == 1:
+            parsed = parse_time_str(times[0])
+            if parsed:
+                if pending_start is None:
+                    pending_start = parsed
+                else:
+                    if pending_start < parsed:
+                        name = None
+                        for offset in range(-3, 3):
+                            idx = i + offset
+                            if 0 <= idx < len(lines):
+                                m = course_re.search(lines[idx])
+                                if m:
+                                    name = m.group(0).strip()
+                                    break
+                        ocr_blocks.append({"day": current_day, "start": pending_start, "end": parsed, "name": name or "Class"})
+                    pending_start = None
+
+    # Combine and deduplicate by (day, start, end)
+    all_blocks = blocks + ocr_blocks
+    seen = set()
+    unique = []
+    for b in all_blocks:
+        key = (b["day"], b["start"], b["end"])
+        if key not in seen:
+            seen.add(key)
+            unique.append(b)
+
+    return unique
+
+
+@app.post("/api/parse-schedule")
+def api_parse_schedule():
+    """Parse schedule from text input. Accepts JSON body with 'text' field."""
+    data = request.get_json(force=True) or {}
+    raw_text = data.get("text", "")
+
+    if not raw_text or not isinstance(raw_text, str):
+        return jsonify({"ok": False, "error": "No schedule text provided."}), 400
+
+    blocks = parse_schedule_text(raw_text)
+
+    if not blocks:
+        return jsonify({
+            "ok": True,
+            "blocks": [],
+            "message": "No schedule entries could be parsed from the provided text.",
+            "rawText": raw_text[:2000],
+        })
+
+    return jsonify({
+        "ok": True,
+        "blocks": blocks,
+        "count": len(blocks),
+    })
+
+
+@app.post("/api/parse-schedule-image")
+def api_parse_schedule_image():
+    """Parse schedule from an uploaded image using OCR."""
+    if "image" not in request.files:
+        return jsonify({"ok": False, "error": "No image file uploaded."}), 400
+
+    file = request.files["image"]
+    if not file.filename:
+        return jsonify({"ok": False, "error": "Empty filename."}), 400
+
+    image_bytes = file.read()
+    if len(image_bytes) > 10 * 1024 * 1024:  # 10MB limit
+        return jsonify({"ok": False, "error": "Image too large (max 10MB)."}), 400
+
+    ocr_text, error = parse_schedule_from_image(image_bytes)
+    if error:
+        return jsonify({"ok": False, "error": error}), 500
+
+    # Use enhanced OCR-specific parser
+    blocks = _parse_schedule_blocks_from_ocr(ocr_text)
+
+    return jsonify({
+        "ok": True,
+        "blocks": blocks,
+        "count": len(blocks),
+        "ocrText": ocr_text[:3000],
+    })
 
 
 if __name__ == "__main__":

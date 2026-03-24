@@ -124,6 +124,10 @@
     </div>
 
     <div class="actions">
+      <div class="import-button-wrap workspace-only">
+        <button id="open-import-modal" type="button" class="import-trigger-btn">📅 Import Schedule from CPP</button>
+      </div>
+
       <details class="persist-panel">
         <summary>Profile and Sharing</summary>
         <div class="persist">
@@ -160,6 +164,98 @@
       <h2>Weekly View</h2>
       <div id="output" class="output muted">No results yet.</div>
     </section>
+  </div>
+
+  <!-- Schedule Import Modal -->
+  <div id="import-schedule-modal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-card import-modal-card" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+      <h3 id="import-modal-title">Import Schedule</h3>
+      <p class="muted">Import your class schedule from CPP or upload a screenshot.</p>
+
+      <div class="import-tabs">
+        <button class="import-tab active" data-tab="bookmarklet">Bookmarklet</button>
+        <button class="import-tab" data-tab="screenshot">Screenshot Upload</button>
+        <button class="import-tab" data-tab="paste">Paste Text</button>
+      </div>
+
+      <div class="import-tab-content" id="tab-bookmarklet">
+        <div class="import-bookmarklet-section">
+          <p>Drag this button to your bookmarks bar, then click it when you're on your CPP schedule page:</p>
+          <div class="bookmarklet-drag-area">
+            <a id="bookmarklet-link" class="bookmarklet-button" href="#" title="Drag me to your bookmarks bar!">
+              📅 Send to TimeSync
+            </a>
+          </div>
+          <div class="import-instructions">
+            <p><strong>How to use:</strong></p>
+            <ol>
+              <li>Drag the button above to your browser's bookmarks bar</li>
+              <li>Go to your CPP schedule page:<br>
+                <code>cmsweb.cms.cpp.edu</code> → Schedule Builder, or<br>
+                <code>my.cpp.edu</code> → Student Center
+              </li>
+              <li>Make sure your schedule/classes are visible on the page</li>
+              <li>Click the "Send to TimeSync" bookmark</li>
+              <li>Your schedule will be automatically imported here</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <div class="import-tab-content hidden" id="tab-screenshot">
+        <div class="import-upload-section">
+          <p>Upload a screenshot of your schedule:</p>
+          <div class="upload-dropzone" id="upload-dropzone">
+            <div class="upload-icon">📸</div>
+            <p>Drag & drop your schedule screenshot here</p>
+            <p class="muted">or click to select a file</p>
+            <input type="file" id="schedule-image-input" accept="image/*" style="display:none" />
+          </div>
+          <div id="upload-preview" class="upload-preview hidden">
+            <img id="upload-preview-img" alt="Schedule preview" />
+            <button id="upload-remove" class="danger-button" type="button">Remove</button>
+          </div>
+          <button id="upload-parse-btn" class="primary-button" type="button" disabled>
+            Extract Schedule from Image
+          </button>
+          <div id="upload-status" class="muted"></div>
+        </div>
+      </div>
+
+      <div class="import-tab-content hidden" id="tab-paste">
+        <div class="import-paste-section">
+          <p>Paste your schedule text below. Supported formats:</p>
+          <ul class="import-format-list">
+            <li>JSON from the bookmarklet</li>
+            <li>Copied text from your schedule page</li>
+            <li>Lines with day codes and time ranges (e.g., "MoWeFr 9:00 AM - 9:50 AM")</li>
+            <li>Day-by-day text with headers like "__Monday__" and time lines like "09:00 am 09:50 am"</li>
+          </ul>
+          <textarea id="schedule-text-input" rows="8" placeholder='Example:&#10;__Monday__&#10;CS 4080-01: Concepts of Programming Languages&#10;Building: BLDG 8 345&#10;09:00 am 09:50 am&#10;&#10;__Tuesday__&#10;CS 4800-01: Software Engineering&#10;Building: BLDG 9 247&#10;08:30 am 09:45 am'></textarea>
+          <button id="parse-text-btn" class="primary-button" type="button">Parse Schedule</button>
+          <div id="paste-status" class="muted"></div>
+        </div>
+      </div>
+
+      <!-- Parsed results preview -->
+      <div id="import-preview-section" class="import-preview-section hidden">
+        <h4>Parsed Schedule (<span id="import-block-count">0</span> blocks)</h4>
+        <div id="import-preview-list" class="import-preview-list"></div>
+        <div class="import-target-section">
+          <label for="import-target">Import as:</label>
+          <select id="import-target">
+            <option value="my-schedule">My Schedule</option>
+            <option value="comparison">New Comparison Schedule</option>
+          </select>
+          <input id="import-comparison-name" type="text" placeholder="Comparison name (e.g., My Classes)" class="hidden" />
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="import-modal-cancel" type="button" class="modal-cancel">Cancel</button>
+        <button id="import-modal-confirm" type="button" class="modal-confirm" disabled>Import Schedule</button>
+      </div>
+    </div>
   </div>
 
   <div id="comparison-name-modal" class="modal-backdrop hidden" aria-hidden="true">

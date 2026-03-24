@@ -1860,15 +1860,456 @@ if (createProfileBtn) {
 }
 document.getElementById("import-friend").onclick = importFriendSchedule;
 
+// ---------- Schedule Import System ----------
+
+let pendingImportBlocks = [];
+let importImageFile = null;
+
+function initImportModal() {
+  const modal = document.getElementById("import-schedule-modal");
+  if (!modal) return;
+
+  const cancelBtn = document.getElementById("import-modal-cancel");
+  const confirmBtn = document.getElementById("import-modal-confirm");
+  const openBtn = document.getElementById("open-import-modal");
+
+  // Tab switching
+  modal.querySelectorAll(".import-tab").forEach((tab) => {
+    tab.onclick = () => {
+      modal.querySelectorAll(".import-tab").forEach((t) => t.classList.remove("active"));
+      modal.querySelectorAll(".import-tab-content").forEach((c) => c.classList.add("hidden"));
+      tab.classList.add("active");
+      const target = document.getElementById("tab-" + tab.dataset.tab);
+      if (target) target.classList.remove("hidden");
+    };
+  });
+
+  // Open modal
+  if (openBtn) {
+    openBtn.onclick = () => openImportModal();
+  }
+
+  // Cancel
+  cancelBtn.onclick = () => closeImportModal();
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeImportModal();
+  });
+
+  // Confirm import
+  confirmBtn.onclick = () => executeImport();
+
+  // Import target toggle
+  const targetSelect = document.getElementById("import-target");
+  const compNameInput = document.getElementById("import-comparison-name");
+  if (targetSelect && compNameInput) {
+    targetSelect.onchange = () => {
+      compNameInput.classList.toggle("hidden", targetSelect.value !== "comparison");
+    };
+  }
+
+  // Screenshot upload
+  initScreenshotUpload();
+
+  // Text paste
+  const parseTextBtn = document.getElementById("parse-text-btn");
+  if (parseTextBtn) {
+    parseTextBtn.onclick = () => parseScheduleText();
+  }
+
+  // Generate bookmarklet link
+  generateBookmarkletLink();
+}
+
+function openImportModal() {
+  const modal = document.getElementById("import-schedule-modal");
+  if (!modal) return;
+
+  pendingImportBlocks = [];
+  importImageFile = null;
+  hideImportPreview();
+
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+
+  // Reset upload state
+  const preview = document.getElementById("upload-preview");
+  if (preview) preview.classList.add("hidden");
+  const parseBtn = document.getElementById("upload-parse-btn");
+  if (parseBtn) parseBtn.disabled = true;
+  const uploadStatus = document.getElementById("upload-status");
+  if (uploadStatus) uploadStatus.textContent = "";
+  const pasteStatus = document.getElementById("paste-status");
+  if (pasteStatus) pasteStatus.textContent = "";
+
+  // Reset confirm button
+  const confirmBtn = document.getElementById("import-modal-confirm");
+  if (confirmBtn) confirmBtn.disabled = true;
+}
+
+function closeImportModal() {
+  const modal = document.getElementById("import-schedule-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  pendingImportBlocks = [];
+  importImageFile = null;
+}
+
+function hideImportPreview() {
+  const section = document.getElementById("import-preview-section");
+  if (section) section.classList.add("hidden");
+  const confirmBtn = document.getElementById("import-modal-confirm");
+  if (confirmBtn) confirmBtn.disabled = true;
+}
+
+function showImportPreview(blocks) {
+  pendingImportBlocks = blocks;
+  const section = document.getElementById("import-preview-section");
+  const list = document.getElementById("import-preview-list");
+  const count = document.getElementById("import-block-count");
+  const confirmBtn = document.getElementById("import-modal-confirm");
+
+  if (!section || !list || !count) return;
+
+  count.textContent = String(blocks.length);
+
+  // Group by day
+  const byDay = {};
+  DAYS.forEach((d) => { byDay[d] = []; });
+  blocks.forEach((b) => {
+    if (byDay[b.day]) byDay[b.day].push(b);
+  });
+
+  list.innerHTML = "";
+  DAYS.forEach((day) => {
+    const items = byDay[day];
+    if (!items || !items.length) return;
+    items.sort((a, b) => a.start.localeCompare(b.start));
+    items.forEach((item) => {
+      const div = document.createElement("div");
+      div.className = "import-preview-item";
+      div.innerHTML = `
+        <span class="import-preview-day">${item.day}</span>
+        <span class="import-preview-name">${item.name || "Busy"}</span>
+        <span class="import-preview-time">${formatRange12(item.start, item.end)}</span>
+      `;
+      list.appendChild(div);
+    });
+  });
+
+  section.classList.remove("hidden");
+  if (confirmBtn) confirmBtn.disabled = false;
+}
+
+function initScreenshotUpload() {
+  const dropzone = document.getElementById("upload-dropzone");
+  const fileInput = document.getElementById("schedule-image-input");
+  const preview = document.getElementById("upload-preview");
+  const previewImg = document.getElementById("upload-preview-img");
+  const removeBtn = document.getElementById("upload-remove");
+  const parseBtn = document.getElementById("upload-parse-btn");
+
+  if (!dropzone || !fileInput) return;
+
+  dropzone.onclick = () => fileInput.click();
+
+  dropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropzone.classList.add("dragover");
+  });
+  dropzone.addEventListener("dragleave", () => {
+    dropzone.classList.remove("dragover");
+  });
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("dragover");
+    const files = e.dataTransfer.files;
+    if (files.length > 0 && files[0].type.startsWith("image/")) {
+      handleImageFile(files[0]);
+    }
+  });
+
+  fileInput.onchange = () => {
+    if (fileInput.files.length > 0) {
+      handleImageFile(fileInput.files[0]);
+    }
+  };
+
+  if (removeBtn) {
+    removeBtn.onclick = () => {
+      importImageFile = null;
+      if (preview) preview.classList.add("hidden");
+      if (parseBtn) parseBtn.disabled = true;
+      if (previewImg) previewImg.src = "";
+      fileInput.value = "";
+      hideImportPreview();
+    };
+  }
+
+  if (parseBtn) {
+    parseBtn.onclick = () => parseScheduleImage();
+  }
+
+  function handleImageFile(file) {
+    importImageFile = file;
+    if (previewImg) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        previewImg.src = e.target.result;
+        if (preview) preview.classList.remove("hidden");
+      };
+      reader.readAsDataURL(file);
+    }
+    if (parseBtn) parseBtn.disabled = false;
+    hideImportPreview();
+  }
+}
+
+async function parseScheduleImage() {
+  if (!importImageFile) return;
+
+  const status = document.getElementById("upload-status");
+  const parseBtn = document.getElementById("upload-parse-btn");
+
+  if (status) status.textContent = "Extracting schedule from image (this may take a moment)...";
+  if (status) status.className = "muted";
+  if (parseBtn) parseBtn.disabled = true;
+
+  try {
+    const formData = new FormData();
+    formData.append("image", importImageFile);
+
+    const res = await fetch("/api/parse-schedule-image", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      if (status) {
+        status.textContent = data.error || "Failed to parse image.";
+        status.className = "persist-error";
+      }
+      if (parseBtn) parseBtn.disabled = false;
+      return;
+    }
+
+    // If OCR found few or no results, dump text to Paste tab and warn
+    if (!data.blocks || data.blocks.length < 3) {
+      if (data.ocrText) {
+        const textarea = document.getElementById("schedule-text-input");
+        if (textarea) textarea.value = data.ocrText;
+      }
+      if (!data.blocks || data.blocks.length === 0) {
+        if (status) {
+          status.textContent =
+            "OCR couldn't reliably read this image. Raw text has been copied to the Paste Text tab — " +
+            "try switching there and editing/replacing it, or use the Paste Text tab with your schedule text directly.";
+          status.className = "persist-error";
+        }
+        if (parseBtn) parseBtn.disabled = false;
+        return;
+      }
+      // Found some but few — show them but warn
+      if (status) {
+        status.textContent =
+          `OCR found only ${data.blocks.length} blocks (may be incomplete). ` +
+          `Raw OCR text copied to Paste Text tab. You can review results below or try Paste Text for better accuracy.`;
+        status.className = "persist-error";
+      }
+      showImportPreview(data.blocks);
+      if (parseBtn) parseBtn.disabled = false;
+      return;
+    }
+
+    if (status) {
+      status.textContent = `Found ${data.blocks.length} class blocks!`;
+      status.className = "muted";
+    }
+    showImportPreview(data.blocks);
+  } catch (err) {
+    if (status) {
+      status.textContent = `Error: ${String(err)}`;
+      status.className = "persist-error";
+    }
+  }
+  if (parseBtn) parseBtn.disabled = false;
+}
+
+async function parseScheduleText() {
+  const textarea = document.getElementById("schedule-text-input");
+  const status = document.getElementById("paste-status");
+  const rawText = (textarea ? textarea.value : "").trim();
+
+  if (!rawText) {
+    if (status) {
+      status.textContent = "Paste your schedule text first.";
+      status.className = "persist-error";
+    }
+    return;
+  }
+
+  if (status) {
+    status.textContent = "Parsing schedule...";
+    status.className = "muted";
+  }
+
+  try {
+    const res = await fetch("/api/parse-schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: rawText }),
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      if (status) {
+        status.textContent = data.error || "Failed to parse text.";
+        status.className = "persist-error";
+      }
+      return;
+    }
+
+    if (!data.blocks || data.blocks.length === 0) {
+      if (status) {
+        status.textContent = data.message || "No schedule entries found. Check the format.";
+        status.className = "persist-error";
+      }
+      return;
+    }
+
+    if (status) {
+      status.textContent = `Found ${data.blocks.length} class blocks!`;
+      status.className = "muted";
+    }
+    showImportPreview(data.blocks);
+  } catch (err) {
+    if (status) {
+      status.textContent = `Error: ${String(err)}`;
+      status.className = "persist-error";
+    }
+  }
+}
+
+function executeImport() {
+  if (!pendingImportBlocks.length) return;
+
+  const target = document.getElementById("import-target").value;
+  const busyBlocks = pendingImportBlocks.map((b) => ({
+    day: b.day,
+    start: b.start,
+    end: b.end,
+  }));
+
+  if (target === "my-schedule") {
+    // Replace My Schedule busy blocks
+    replaceBusy(aBusy, busyBlocks);
+    renderBusyList(aBusy, "a-list");
+    closeImportModal();
+    setPersistStatus(
+      `Imported ${busyBlocks.length} blocks into My Schedule. Click "Update Schedule" to save.`
+    );
+  } else {
+    // Create new comparison schedule
+    let name = (document.getElementById("import-comparison-name").value || "").trim();
+    if (!name) name = "Imported Schedule";
+
+    const created = createComparisonSchedule({
+      name,
+      busy: busyBlocks,
+      sourceUserKey: null,
+    });
+
+    if (created) {
+      closeImportModal();
+      setComparisonStatus(`Imported ${busyBlocks.length} blocks as "${created.name}".`);
+      setPersistStatus(`Click "Update Schedule" to save the imported comparison.`);
+    }
+  }
+}
+
+function generateBookmarkletLink() {
+  const link = document.getElementById("bookmarklet-link");
+  if (!link) return;
+
+  // Build the bookmarklet URL with current origin
+  const origin = window.location.origin;
+
+  // Minified bookmarklet that fetches and executes the full script
+  const bookmarkletCode = `javascript:void(function(){var s=document.createElement('script');s.src='${origin}/static/bookmarklet-cpp.js?t='+Date.now();window.TIMESYNC_ORIGIN='${origin}';document.body.appendChild(s)})()`;
+
+  link.href = bookmarkletCode;
+
+  // Prevent click navigation (it's meant to be dragged)
+  link.addEventListener("click", (e) => {
+    e.preventDefault();
+    alert(
+      "Drag this button to your bookmarks bar!\\n\\n" +
+      "Then visit your CPP schedule page and click the bookmark to import your schedule."
+    );
+  });
+}
+
+function checkUrlForImportData() {
+  const params = new URLSearchParams(window.location.search);
+  const importData = params.get("import_schedule");
+  const importClipboard = params.get("import_clipboard");
+
+  if (importData) {
+    try {
+      const blocks = JSON.parse(decodeURIComponent(importData));
+      if (Array.isArray(blocks) && blocks.length > 0) {
+        // Clean the URL
+        window.history.replaceState({}, "", window.location.pathname);
+
+        // Wait for page to be ready, then open import modal with data
+        setTimeout(() => {
+          openImportModal();
+          showImportPreview(blocks);
+
+          // Auto-switch to the paste tab and show success
+          const pasteStatus = document.getElementById("paste-status");
+          if (pasteStatus) {
+            pasteStatus.textContent = `Schedule data received from bookmarklet! ${blocks.length} blocks found.`;
+            pasteStatus.className = "muted";
+          }
+        }, 500);
+      }
+    } catch (e) {
+      console.error("Failed to parse import_schedule data:", e);
+    }
+  }
+
+  if (importClipboard) {
+    window.history.replaceState({}, "", window.location.pathname);
+    setTimeout(() => {
+      openImportModal();
+      // Switch to paste tab
+      const pastTab = document.querySelector('.import-tab[data-tab="paste"]');
+      if (pastTab) pastTab.click();
+
+      const pasteStatus = document.getElementById("paste-status");
+      if (pasteStatus) {
+        pasteStatus.textContent = "Schedule data is in your clipboard. Paste it in the text area above and click Parse.";
+        pasteStatus.className = "muted";
+      }
+    }, 500);
+  }
+}
+
 // Initial UI state
 initThemeToggle();
 initComparisonNameModal();
+initImportModal();
 initUserKeyInput();
 initWorkspaceGate();
 clearDaySelections();
 renderBusyList(aBusy, "a-list");
 renderBusyList(bBusy, "b-list", markComparisonDirty);
 renderComparisonSelect();
+
+// Check for import data in URL (from bookmarklet redirect)
+checkUrlForImportData();
 
 // Auto-load remembered profile key if present.
 if (getProfileKey()) {
