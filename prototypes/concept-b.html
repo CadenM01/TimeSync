@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TimeSync - Concept B</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet" />
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f0f4f8;
+  --bg-card: rgba(255,255,255,0.72);
+  --bg-card-solid: #ffffff;
+  --bg-nav: rgba(255,255,255,0.82);
+  --bg-hover: rgba(0,0,0,0.03);
+  --bg-input: #f5f7fb;
+  --text: #1a1a2e;
+  --text-secondary: #64648c;
+  --text-muted: #9d9db8;
+  --border: rgba(0,0,0,0.07);
+  --border-strong: rgba(0,0,0,0.12);
+  --accent: #7c3aed;
+  --accent-soft: rgba(124,58,237,0.08);
+  --accent-hover: #6d28d9;
+  --accent-text: #ffffff;
+  --green: #059669;
+  --green-soft: rgba(5,150,105,0.08);
+  --red: #dc2626;
+  --shadow: 0 8px 32px rgba(0,0,0,0.06);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.08);
+  --blur: blur(20px);
+  --radius: 16px;
+  --radius-sm: 10px;
+
+  --c-you: rgba(124,58,237,0.2);
+  --c-you-b: rgba(124,58,237,0.55);
+  --c-you-t: #6d28d9;
+  --c-f1: rgba(219,39,119,0.18);
+  --c-f1-b: rgba(219,39,119,0.5);
+  --c-f1-t: #be185d;
+  --c-f2: rgba(6,182,212,0.18);
+  --c-f2-b: rgba(6,182,212,0.5);
+  --c-f2-t: #0e7490;
+  --c-f3: rgba(234,179,8,0.18);
+  --c-f3-b: rgba(234,179,8,0.5);
+  --c-f3-t: #a16207;
+  --c-free: rgba(5,150,105,0.12);
+  --c-free-b: rgba(5,150,105,0.45);
+}
+
+[data-theme="dark"] {
+  --bg: #0e0e1a;
+  --bg-card: rgba(26,26,46,0.75);
+  --bg-card-solid: #1a1a2e;
+  --bg-nav: rgba(20,20,38,0.88);
+  --bg-hover: rgba(255,255,255,0.04);
+  --bg-input: rgba(255,255,255,0.06);
+  --text: #ededf5;
+  --text-secondary: #a0a0c0;
+  --text-muted: #6b6b8d;
+  --border: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.1);
+  --accent: #a78bfa;
+  --accent-soft: rgba(167,139,250,0.1);
+  --accent-hover: #c4b5fd;
+  --accent-text: #0e0e1a;
+  --green: #34d399;
+  --green-soft: rgba(52,211,153,0.1);
+  --shadow: 0 8px 32px rgba(0,0,0,0.25);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.35);
+
+  --c-you: rgba(167,139,250,0.18);
+  --c-you-b: rgba(167,139,250,0.5);
+  --c-you-t: #c4b5fd;
+  --c-f1: rgba(244,114,182,0.15);
+  --c-f1-b: rgba(244,114,182,0.45);
+  --c-f1-t: #f9a8d4;
+  --c-f2: rgba(34,211,238,0.12);
+  --c-f2-b: rgba(34,211,238,0.4);
+  --c-f2-t: #67e8f9;
+  --c-f3: rgba(253,224,71,0.12);
+  --c-f3-b: rgba(253,224,71,0.35);
+  --c-f3-t: #fde047;
+  --c-free: rgba(52,211,153,0.1);
+  --c-free-b: rgba(52,211,153,0.35);
+}
+
+body {
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Gradient background */
+body::before {
+  content: '';
+  position: fixed;
+  top: -30%; left: -10%;
+  width: 60%; height: 60%;
+  background: radial-gradient(circle, rgba(124,58,237,0.06) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+body::after {
+  content: '';
+  position: fixed;
+  bottom: -20%; right: -10%;
+  width: 50%; height: 50%;
+  background: radial-gradient(circle, rgba(6,182,212,0.05) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ========== TOP NAV ========== */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--bg-nav);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--border);
+  padding: 0 32px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.nav-brand {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--accent), #06b6d4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+.nav-links {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+}
+
+.nav-link {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.nav-link:hover { color: var(--text); background: var(--bg-hover); }
+.nav-link.active { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.nav-link svg { width: 16px; height: 16px; opacity: 0.7; }
+.nav-link.active svg { opacity: 1; }
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.user-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px 5px 5px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.user-pill:hover { border-color: var(--accent); }
+
+.user-pill .avatar {
+  width: 28px; height: 28px; border-radius: 99px;
+  background: linear-gradient(135deg, var(--accent), #06b6d4);
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-size: 11px; font-weight: 700;
+}
+
+.user-pill .name { font-size: 13px; font-weight: 600; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text); transition: all 0.15s;
+  backdrop-filter: var(--blur);
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn svg { width: 14px; height: 14px; }
+.btn-primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--accent-text); }
+.btn-ghost { background: transparent; border-color: transparent; }
+.btn-ghost:hover { background: var(--bg-hover); border-color: transparent; color: var(--text); }
+
+/* ========== PAGE CONTENT ========== */
+.page {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 24px 32px;
+  position: relative;
+  z-index: 1;
+}
+
+/* ========== STATS ROW ========== */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  box-shadow: var(--shadow);
+}
+
+.stat-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.stat-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.stat-value.accent { color: var(--accent); }
+.stat-value.green { color: var(--green); }
+
+/* ========== SCHEDULE + SIDEBAR ========== */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 20px;
+}
+
+/* ========== FRIEND TOGGLES ========== */
+.controls-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 14px 6px 8px;
+  border-radius: 99px; font-size: 13px; font-weight: 500;
+  cursor: pointer; border: 1.5px solid var(--border);
+  background: var(--bg-card); transition: all 0.15s;
+  backdrop-filter: var(--blur); user-select: none;
+}
+.chip .dot { width: 8px; height: 8px; border-radius: 99px; }
+.chip.you .dot { background: var(--c-you-b); }
+.chip.f1 .dot { background: var(--c-f1-b); }
+.chip.f2 .dot { background: var(--c-f2-b); }
+.chip.f3 .dot { background: var(--c-f3-b); }
+.chip.active.you { background: var(--c-you); border-color: var(--c-you-b); color: var(--c-you-t); }
+.chip.active.f1 { background: var(--c-f1); border-color: var(--c-f1-b); color: var(--c-f1-t); }
+.chip.active.f2 { background: var(--c-f2); border-color: var(--c-f2-b); color: var(--c-f2-t); }
+.chip.active.f3 { background: var(--c-f3); border-color: var(--c-f3-b); color: var(--c-f3-t); }
+
+/* ========== WEEKLY GRID ========== */
+.grid-card {
+  background: var(--bg-card);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.grid-header {
+  display: grid;
+  grid-template-columns: 54px repeat(7, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+
+.grid-hcell {
+  padding: 14px 8px; text-align: center;
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+.grid-hcell .day-num {
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 2px;
+  letter-spacing: -0.02em;
+}
+
+.grid-hcell.today .day-num {
+  background: var(--accent);
+  color: var(--accent-text);
+  width: 30px; height: 30px;
+  border-radius: 99px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.grid-body {
+  overflow-y: auto;
+  max-height: 560px;
+  display: grid;
+  grid-template-columns: 54px repeat(7, 1fr);
+  position: relative;
+}
+
+.time-lbl {
+  padding: 0 6px; height: 48px;
+  display: flex; align-items: flex-start; justify-content: flex-end;
+  font-size: 10px; color: var(--text-muted); font-weight: 500;
+  border-right: 1px solid var(--border);
+  transform: translateY(-6px);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.grid-cell {
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.grid-cell:hover { background: var(--bg-hover); }
+
+/* Blocks */
+.block {
+  position: absolute;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 11px; font-weight: 600;
+  overflow: hidden; cursor: pointer;
+  transition: filter 0.15s, transform 0.1s;
+  border-left: 3px solid;
+  backdrop-filter: blur(4px);
+}
+.block:hover { filter: brightness(0.93); transform: scale(1.02); z-index: 10; }
+.block-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.block-time { font-size: 10px; font-weight: 500; opacity: 0.75; margin-top: 1px; }
+
+.block.you { background: var(--c-you); border-left-color: var(--c-you-b); color: var(--c-you-t); }
+.block.f1 { background: var(--c-f1); border-left-color: var(--c-f1-b); color: var(--c-f1-t); }
+.block.f2 { background: var(--c-f2); border-left-color: var(--c-f2-b); color: var(--c-f2-t); }
+.block.f3 { background: var(--c-f3); border-left-color: var(--c-f3-b); color: var(--c-f3-t); }
+.block.free { background: var(--c-free); border-left-color: var(--c-free-b); color: var(--green); border-style: dashed; border-left-style: solid; }
+
+/* ========== RIGHT SIDEBAR ========== */
+.right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel {
+  background: var(--bg-card);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.panel-head {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-head .pulse {
+  width: 7px; height: 7px; border-radius: 99px;
+  background: var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* Free windows */
+.free-row {
+  display: flex; align-items: center;
+  padding: 10px 16px; gap: 10px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s; cursor: pointer;
+}
+.free-row:last-child { border-bottom: none; }
+.free-row:hover { background: var(--bg-hover); }
+.free-day { font-size: 11px; font-weight: 700; color: var(--accent); width: 30px; }
+.free-time { font-size: 13px; font-weight: 600; flex: 1; }
+.free-dur {
+  font-size: 10px; font-weight: 700; padding: 3px 8px;
+  border-radius: 99px; background: var(--green-soft); color: var(--green);
+}
+
+/* Friends mini-list */
+.friend-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  transition: background 0.15s; cursor: pointer;
+}
+.friend-row:last-child { border-bottom: none; }
+.friend-row:hover { background: var(--bg-hover); }
+
+.friend-av {
+  width: 32px; height: 32px; border-radius: 99px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: white; flex-shrink: 0;
+}
+.friend-av.pink { background: linear-gradient(135deg, #db2777, #f472b6); }
+.friend-av.cyan { background: linear-gradient(135deg, #0891b2, #22d3ee); }
+.friend-av.amber { background: linear-gradient(135deg, #d97706, #fbbf24); }
+.friend-av.purple { background: linear-gradient(135deg, #7c3aed, #a78bfa); }
+
+.friend-name { font-size: 13px; font-weight: 600; flex: 1; }
+.friend-code-sm { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+
+.friend-toggle {
+  width: 36px; height: 20px; border-radius: 99px;
+  background: var(--border-strong); border: none; cursor: pointer;
+  position: relative; transition: background 0.2s;
+}
+.friend-toggle::after {
+  content: ''; position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 99px;
+  background: white; transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+.friend-toggle.on { background: var(--accent); }
+.friend-toggle.on::after { transform: translateX(16px); }
+
+/* Quick add friend */
+.quick-add {
+  display: flex; gap: 6px; padding: 12px 16px;
+}
+.quick-add input {
+  flex: 1; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  background: var(--bg-input); color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  outline: none;
+}
+.quick-add input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.quick-add input::placeholder { text-transform: none; font-family: 'DM Sans', sans-serif; font-weight: 400; color: var(--text-muted); letter-spacing: 0; }
+
+/* ========== MOBILE ========== */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: var(--bg-nav);
+  backdrop-filter: var(--blur);
+  border-top: 1px solid var(--border);
+  z-index: 100;
+  padding: 6px 0 max(6px, env(safe-area-inset-bottom));
+}
+
+.mobile-nav-inner {
+  display: flex;
+  justify-content: space-around;
+}
+
+.mob-link {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 12px; font-size: 10px; font-weight: 600;
+  color: var(--text-muted); cursor: pointer; text-decoration: none;
+  transition: color 0.15s;
+}
+.mob-link.active { color: var(--accent); }
+.mob-link svg { width: 20px; height: 20px; }
+
+@media (max-width: 768px) {
+  .navbar { padding: 0 16px; gap: 12px; }
+  .nav-links { display: none; }
+  .mobile-nav { display: block; }
+  .page { padding: 16px 16px 80px; }
+  .stats-row { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .dashboard-grid { grid-template-columns: 1fr; }
+  .grid-header { grid-template-columns: 36px repeat(7, 1fr); }
+  .grid-body { grid-template-columns: 36px repeat(7, 1fr); }
+  .grid-hcell { font-size: 9px; padding: 10px 4px; }
+  .grid-hcell .day-num { font-size: 14px; }
+  .time-lbl { font-size: 9px; }
+  .stat-value { font-size: 22px; }
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- Top Nav -->
+<nav class="navbar">
+  <div class="nav-brand">TimeSync</div>
+  <div class="nav-links">
+    <a class="nav-link active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Schedule
+    </a>
+    <a class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      Friends
+    </a>
+    <a class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Edit
+    </a>
+    <a class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Import
+    </a>
+  </div>
+  <div class="nav-right">
+    <button class="btn btn-ghost" onclick="toggleTheme()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+    </button>
+    <div class="user-pill">
+      <div class="avatar">CM</div>
+      <span class="name">Caden M.</span>
+    </div>
+  </div>
+</nav>
+
+<!-- Mobile Bottom Nav -->
+<div class="mobile-nav">
+  <div class="mobile-nav-inner">
+    <a class="mob-link active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Schedule
+    </a>
+    <a class="mob-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      Friends
+    </a>
+    <a class="mob-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Edit
+    </a>
+    <a class="mob-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4"/></svg>
+      Settings
+    </a>
+  </div>
+</div>
+
+<!-- Page Content -->
+<div class="page">
+  <!-- Stats Row -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Busy Blocks</div>
+      <div class="stat-value">12</div>
+      <div class="stat-sub">This week</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Friends</div>
+      <div class="stat-value accent">4</div>
+      <div class="stat-sub">Schedules synced</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Free Windows</div>
+      <div class="stat-value green">8</div>
+      <div class="stat-sub">Shared availability</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Your Code</div>
+      <div class="stat-value" style="font-family:'JetBrains Mono',monospace;font-size:22px;letter-spacing:0.1em;">GXBE9G</div>
+      <div class="stat-sub" style="cursor:pointer;color:var(--accent);">Copy to clipboard</div>
+    </div>
+  </div>
+
+  <!-- Dashboard Grid -->
+  <div class="dashboard-grid">
+    <!-- Left: Controls + Grid -->
+    <div>
+      <div class="controls-bar">
+        <div class="chip you active"><span class="dot"></span> You</div>
+        <div class="chip f1 active"><span class="dot"></span> Alex R.</div>
+        <div class="chip f2 active"><span class="dot"></span> Jordan K.</div>
+        <div class="chip f3"><span class="dot"></span> Sam T.</div>
+        <div style="margin-left:auto;">
+          <button class="btn-primary btn" id="free-btn" onclick="toggleFree()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            Find Free Time
+          </button>
+        </div>
+      </div>
+
+      <div class="grid-card">
+        <div class="grid-header">
+          <div class="grid-hcell"></div>
+          <div class="grid-hcell today">Mon<span class="day-num">24</span></div>
+          <div class="grid-hcell">Tue<span class="day-num">25</span></div>
+          <div class="grid-hcell">Wed<span class="day-num">26</span></div>
+          <div class="grid-hcell">Thu<span class="day-num">27</span></div>
+          <div class="grid-hcell">Fri<span class="day-num">28</span></div>
+          <div class="grid-hcell">Sat<span class="day-num">29</span></div>
+          <div class="grid-hcell">Sun<span class="day-num">30</span></div>
+        </div>
+        <div class="grid-body" id="grid-body"></div>
+      </div>
+    </div>
+
+    <!-- Right Sidebar -->
+    <div class="right-col">
+      <!-- Free Time Windows -->
+      <div class="panel" id="free-panel" style="display:none;">
+        <div class="panel-head"><span class="pulse"></span> Available Windows</div>
+        <div class="free-row"><span class="free-day">MON</span><span class="free-time">2:00 - 4:00 PM</span><span class="free-dur">2h</span></div>
+        <div class="free-row"><span class="free-day">TUE</span><span class="free-time">3:00 - 5:00 PM</span><span class="free-dur">2h</span></div>
+        <div class="free-row"><span class="free-day">WED</span><span class="free-time">11:30 AM - 1:30 PM</span><span class="free-dur">2h</span></div>
+        <div class="free-row"><span class="free-day">THU</span><span class="free-time">2:00 - 4:00 PM</span><span class="free-dur">2h</span></div>
+        <div class="free-row"><span class="free-day">FRI</span><span class="free-time">12:00 - 2:00 PM</span><span class="free-dur">2h</span></div>
+      </div>
+
+      <!-- Friends -->
+      <div class="panel">
+        <div class="panel-head">Friends</div>
+        <div class="friend-row">
+          <div class="friend-av pink">AR</div>
+          <div style="flex:1"><div class="friend-name">Alex Rodriguez</div><div class="friend-code-sm">H7KM3N</div></div>
+          <button class="friend-toggle on" onclick="this.classList.toggle('on')"></button>
+        </div>
+        <div class="friend-row">
+          <div class="friend-av cyan">JK</div>
+          <div style="flex:1"><div class="friend-name">Jordan Kim</div><div class="friend-code-sm">P4WR8T</div></div>
+          <button class="friend-toggle on" onclick="this.classList.toggle('on')"></button>
+        </div>
+        <div class="friend-row">
+          <div class="friend-av amber">ST</div>
+          <div style="flex:1"><div class="friend-name">Sam Thompson</div><div class="friend-code-sm">Y2DX5V</div></div>
+          <button class="friend-toggle" onclick="this.classList.toggle('on')"></button>
+        </div>
+        <div class="friend-row">
+          <div class="friend-av purple">MC</div>
+          <div style="flex:1"><div class="friend-name">Maya Chen</div><div class="friend-code-sm">B9FJ6W</div></div>
+          <button class="friend-toggle on" onclick="this.classList.toggle('on')"></button>
+        </div>
+        <div class="quick-add">
+          <input placeholder="Friend code" maxlength="6" />
+          <button class="btn-primary btn" style="padding:7px 12px;">Add</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleTheme() {
+  const h = document.documentElement;
+  h.setAttribute('data-theme', h.getAttribute('data-theme')==='dark'?'light':'dark');
+}
+
+function toggleFree() {
+  const p = document.getElementById('free-panel');
+  p.style.display = p.style.display==='none'?'block':'none';
+  document.querySelectorAll('.block.free').forEach(b => b.style.display = b.style.display==='none'?'block':'none');
+}
+
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => c.classList.toggle('active'));
+
+const gridBody = document.getElementById('grid-body');
+for (let h = 8; h <= 20; h++) {
+  const t = document.createElement('div');
+  t.className = 'time-lbl';
+  t.textContent = `${h>12?h-12:h} ${h>=12?'PM':'AM'}`;
+  gridBody.appendChild(t);
+  for (let d = 0; d < 7; d++) {
+    const c = document.createElement('div');
+    c.className = 'grid-cell';
+    gridBody.appendChild(c);
+  }
+}
+
+const blocks = [
+  {day:0,start:9,end:10.5,label:'Math 201',sub:'9-10:30 AM',cls:'you'},
+  {day:0,start:13,end:14,label:'Physics Lab',sub:'1-2 PM',cls:'you'},
+  {day:1,start:10,end:11.5,label:'CS 301',sub:'10-11:30 AM',cls:'you'},
+  {day:2,start:9,end:10.5,label:'Math 201',sub:'9-10:30 AM',cls:'you'},
+  {day:3,start:10,end:11.5,label:'CS 301',sub:'10-11:30 AM',cls:'you'},
+  {day:4,start:11,end:12,label:'English 102',sub:'11 AM-12 PM',cls:'you'},
+  {day:0,start:10,end:11.5,label:'Bio 101',sub:'10-11:30 AM',cls:'f1'},
+  {day:1,start:9,end:10,label:'Chem 201',sub:'9-10 AM',cls:'f1'},
+  {day:1,start:13,end:14.5,label:'Bio Lab',sub:'1-2:30 PM',cls:'f1'},
+  {day:2,start:10,end:11.5,label:'Bio 101',sub:'10-11:30 AM',cls:'f1'},
+  {day:3,start:9,end:10,label:'Chem 201',sub:'9-10 AM',cls:'f1'},
+  {day:4,start:14,end:15.5,label:'Bio 101',sub:'2-3:30 PM',cls:'f1'},
+  {day:0,start:11,end:12,label:'Art 105',sub:'11 AM-12 PM',cls:'f2'},
+  {day:1,start:11,end:12.5,label:'Design',sub:'11-12:30',cls:'f2'},
+  {day:2,start:14,end:15.5,label:'Art 105',sub:'2-3:30 PM',cls:'f2'},
+  {day:3,start:11,end:12.5,label:'Design',sub:'11-12:30',cls:'f2'},
+  {day:4,start:9,end:10.5,label:'Sculpture',sub:'9-10:30 AM',cls:'f2'},
+  {day:0,start:14,end:16,label:'Everyone free',sub:'2-4 PM',cls:'free',hidden:true},
+  {day:1,start:15,end:17,label:'Everyone free',sub:'3-5 PM',cls:'free',hidden:true},
+  {day:2,start:11.5,end:13.5,label:'Everyone free',sub:'11:30-1:30',cls:'free',hidden:true},
+  {day:3,start:14,end:16,label:'Everyone free',sub:'2-4 PM',cls:'free',hidden:true},
+  {day:4,start:12,end:14,label:'Everyone free',sub:'12-2 PM',cls:'free',hidden:true},
+];
+
+const cellH = 48, startH = 8;
+function posBlocks() {
+  document.querySelectorAll('.block').forEach(b=>b.remove());
+  const cells = gridBody.querySelectorAll('.grid-cell');
+  if(!cells.length) return;
+  const tw = gridBody.querySelector('.time-lbl')?.getBoundingClientRect().width||54;
+  const cw = cells[0].getBoundingClientRect().width;
+  blocks.forEach(b => {
+    const el = document.createElement('div');
+    el.className = `block ${b.cls}`;
+    el.style.cssText = `position:absolute;top:${(b.start-startH)*cellH}px;height:${(b.end-b.start)*cellH}px;left:${tw+b.day*cw+2}px;width:${cw-4}px;${b.hidden?'display:none;':''}`;
+    el.innerHTML = `<div class="block-name">${b.label}</div><div class="block-time">${b.sub}</div>`;
+    gridBody.appendChild(el);
+  });
+}
+requestAnimationFrame(()=>requestAnimationFrame(posBlocks));
+window.addEventListener('resize', posBlocks);
+</script>
+</body>
+</html>

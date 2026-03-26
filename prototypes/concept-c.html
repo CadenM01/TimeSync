@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TimeSync</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ===== TOKENS ===== */
+:root {
+  --bg: #09090b;
+  --bg-card: #18181b;
+  --bg-raised: #1f1f23;
+  --bg-hover: #27272a;
+  --bg-input: #27272a;
+  --text: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --accent: #3b82f6;
+  --accent-soft: rgba(59,130,246,0.12);
+  --accent-hover: #60a5fa;
+  --accent-text: #ffffff;
+  --green-neon: #00ff88;
+  --green-neon-dim: rgba(0,255,136,0.15);
+  --red: #ef4444;
+  --shadow: 0 2px 8px rgba(0,0,0,0.4);
+  --radius: 8px;
+  --radius-sm: 6px;
+
+  /* Block colors — dark mode, vivid */
+  --c-you-bg: rgba(59,130,246,0.28);
+  --c-you-border: #3b82f6;
+  --c-you-text: #93c5fd;
+
+  --c-f1-bg: rgba(236,72,153,0.28);
+  --c-f1-border: #ec4899;
+  --c-f1-text: #f9a8d4;
+
+  --c-f2-bg: rgba(6,182,212,0.25);
+  --c-f2-border: #06b6d4;
+  --c-f2-text: #67e8f9;
+
+  --c-f3-bg: rgba(245,158,11,0.25);
+  --c-f3-border: #f59e0b;
+  --c-f3-text: #fde047;
+
+  --c-merged-bg: rgba(239,68,68,0.22);
+  --c-merged-border: #ef4444;
+  --c-merged-text: #fca5a5;
+}
+
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-card: #f4f4f5;
+  --bg-raised: #e4e4e7;
+  --bg-hover: #e4e4e7;
+  --bg-input: #f4f4f5;
+  --text: #09090b;
+  --text-secondary: #52525b;
+  --text-muted: #a1a1aa;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --accent: #2563eb;
+  --accent-soft: rgba(37,99,235,0.07);
+  --accent-hover: #1d4ed8;
+  --accent-text: #ffffff;
+  --green-neon: #16a34a;
+  --green-neon-dim: rgba(22,163,74,0.08);
+  --shadow: 0 1px 4px rgba(0,0,0,0.07);
+
+  --c-you-bg: rgba(37,99,235,0.14);
+  --c-you-border: #2563eb;
+  --c-you-text: #1d4ed8;
+
+  --c-f1-bg: rgba(219,39,119,0.14);
+  --c-f1-border: #db2777;
+  --c-f1-text: #9d174d;
+
+  --c-f2-bg: rgba(8,145,178,0.14);
+  --c-f2-border: #0891b2;
+  --c-f2-text: #155e75;
+
+  --c-f3-bg: rgba(202,138,4,0.14);
+  --c-f3-border: #ca8a04;
+  --c-f3-text: #78350f;
+
+  --c-merged-bg: rgba(220,38,38,0.12);
+  --c-merged-border: #dc2626;
+  --c-merged-text: #7f1d1d;
+}
+
+/* ===== BASE ===== */
+body {
+  font-family: 'Geist', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.3s, color 0.3s;
+}
+
+/* ===== TOP BAR ===== */
+.topbar {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+  gap: 0;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 100;
+  transition: background 0.3s, border-color 0.3s;
+}
+
+.brand {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--text);
+  margin-right: 16px;
+  flex-shrink: 0;
+}
+
+.divider { width: 1px; height: 20px; background: var(--border-strong); margin: 0 4px; }
+
+.tab-nav { display: flex; height: 100%; }
+.tab {
+  display: flex; align-items: center; gap: 5px;
+  padding: 0 12px; font-size: 13px; font-weight: 500;
+  color: var(--text-muted); cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  text-decoration: none; height: 100%; white-space: nowrap;
+}
+.tab:hover { color: var(--text-secondary); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tab svg { width: 13px; height: 13px; opacity: 0.65; }
+.tab.active svg { opacity: 1; }
+.tab-badge {
+  font-size: 9px; background: var(--accent); color: white;
+  padding: 0 5px; border-radius: 99px; font-weight: 700; line-height: 15px;
+}
+
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+
+.code-pill {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  padding: 3px 9px; border-radius: var(--radius-sm);
+  background: var(--bg-card); border: 1px solid var(--border-strong);
+  color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+}
+.code-pill:hover { border-color: var(--accent); color: var(--accent); }
+
+.icon-btn {
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+}
+.icon-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border-strong); }
+.icon-btn svg { width: 13px; height: 13px; }
+
+.avatar-sm {
+  width: 28px; height: 28px; border-radius: 99px;
+  background: var(--accent); display: flex; align-items: center; justify-content: center;
+  color: white; font-size: 10px; font-weight: 700; cursor: pointer; flex-shrink: 0;
+}
+
+/* ===== LAYOUT ===== */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 268px;
+  height: calc(100vh - 46px);
+}
+
+.main-area {
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* ===== SUB-HEADER ===== */
+.sub-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-bottom: 1px solid var(--border);
+  flex-wrap: wrap; flex-shrink: 0;
+}
+
+.chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 10px 4px 6px; border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border-strong); background: transparent;
+  transition: all 0.2s; user-select: none;
+}
+.chip .dot { width: 7px; height: 7px; border-radius: 99px; flex-shrink: 0; }
+
+.chip.you .dot   { background: var(--c-you-border);  }
+.chip.f1 .dot    { background: var(--c-f1-border);   }
+.chip.f2 .dot    { background: var(--c-f2-border);   }
+.chip.f3 .dot    { background: var(--c-f3-border);   }
+
+.chip.active.you { background: var(--c-you-bg); border-color: var(--c-you-border); color: var(--c-you-text); }
+.chip.active.f1  { background: var(--c-f1-bg);  border-color: var(--c-f1-border);  color: var(--c-f1-text);  }
+.chip.active.f2  { background: var(--c-f2-bg);  border-color: var(--c-f2-border);  color: var(--c-f2-text);  }
+.chip.active.f3  { background: var(--c-f3-bg);  border-color: var(--c-f3-border);  color: var(--c-f3-text);  }
+
+.chip-label { color: var(--text-muted); }
+.chip:not(.active) { color: var(--text-muted); }
+
+.sub-right { margin-left: auto; display: flex; gap: 6px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border-strong); background: var(--bg-card);
+  color: var(--text-secondary); transition: all 0.15s; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.btn svg { width: 12px; height: 12px; }
+.btn-accent { background: var(--accent); color: white; border-color: var(--accent); }
+.btn-accent:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: white; }
+.btn-green { background: var(--green-neon); color: #000; border-color: var(--green-neon); font-weight: 700; }
+.btn-green:hover { filter: brightness(1.1); color: #000; }
+.btn-merge { background: var(--c-merged-bg); border-color: var(--c-merged-border); color: var(--c-merged-text); }
+.btn-merge.active { background: var(--c-merged-border); color: white; }
+.btn-merge:hover { background: var(--c-merged-border); color: white; }
+
+/* ===== SCHEDULE GRID ===== */
+.schedule-wrap {
+  flex: 1; overflow: auto; position: relative;
+}
+
+.schedule-grid {
+  display: grid;
+  grid-template-columns: 44px repeat(7, 1fr);
+  min-width: 520px;
+  position: relative;
+}
+
+/* Sticky day headers row */
+.grid-sticky-row {
+  display: contents;
+}
+
+.time-corner, .day-header {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border-strong);
+  padding: 8px 0 6px;
+  transition: background 0.3s;
+}
+
+.time-corner { border-right: 1px solid var(--border); }
+
+.day-header {
+  text-align: center; border-right: 1px solid var(--border);
+}
+.day-header .d-name {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--text-muted);
+}
+.day-header .d-num {
+  font-size: 17px; font-weight: 700; color: var(--text); margin-top: 1px;
+  line-height: 1;
+}
+.day-header.today .d-num {
+  background: var(--accent); color: white;
+  width: 28px; height: 28px; border-radius: 99px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; margin-top: 2px;
+}
+
+/* Time rows */
+.t-label {
+  height: 44px; display: flex; align-items: flex-start; justify-content: flex-end;
+  padding: 0 6px 0 0; font-size: 10px; font-weight: 500;
+  color: var(--text-muted); font-family: 'Geist Mono', monospace;
+  border-right: 1px solid var(--border);
+  transform: translateY(-6px);
+  user-select: none;
+}
+
+.grid-cell {
+  height: 44px; border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  transition: background 0.08s;
+}
+.grid-cell:hover { background: var(--bg-hover); cursor: crosshair; }
+.grid-cell:last-child { border-right: none; }
+
+/* ===== SCHEDULE BLOCKS ===== */
+.block {
+  position: absolute;
+  border-radius: var(--radius);
+  padding: 4px 7px;
+  font-size: 11px; font-weight: 600;
+  overflow: hidden; cursor: pointer;
+  border-left: 3px solid;
+  transition: opacity 0.32s ease, transform 0.32s ease, box-shadow 0.2s;
+  transform-origin: top center;
+}
+
+.block:hover { z-index: 20; filter: brightness(1.15); }
+
+.block-name {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3;
+}
+.block-time { font-size: 9px; font-weight: 500; opacity: 0.75; }
+
+/* Individual block colors */
+.block.you  { background: var(--c-you-bg); border-left-color: var(--c-you-border); color: var(--c-you-text); box-shadow: 0 0 0 1px var(--c-you-border) inset; }
+.block.f1   { background: var(--c-f1-bg);  border-left-color: var(--c-f1-border);  color: var(--c-f1-text);  box-shadow: 0 0 0 1px var(--c-f1-border) inset; }
+.block.f2   { background: var(--c-f2-bg);  border-left-color: var(--c-f2-border);  color: var(--c-f2-text);  box-shadow: 0 0 0 1px var(--c-f2-border) inset; }
+.block.f3   { background: var(--c-f3-bg);  border-left-color: var(--c-f3-border);  color: var(--c-f3-text);  box-shadow: 0 0 0 1px var(--c-f3-border) inset; }
+
+/* Merged block */
+.block.merged {
+  background: var(--c-merged-bg);
+  border-left-color: var(--c-merged-border);
+  color: var(--c-merged-text);
+  box-shadow: 0 0 0 1px var(--c-merged-border) inset, 0 4px 14px rgba(239,68,68,0.2);
+  border-radius: var(--radius);
+}
+
+/* Free-time blocks — sandwiched (between busy blocks) */
+.block.free.sandwiched {
+  background: var(--green-neon-dim);
+  border-left: 3px solid var(--green-neon);
+  color: var(--green-neon);
+  border-top: 1px solid rgba(0,255,136,0.4);
+  border-right: 1px solid rgba(0,255,136,0.4);
+  border-bottom: 1px solid rgba(0,255,136,0.4);
+  animation: free-glow 2.4s ease-in-out infinite;
+}
+
+/* Free-time blocks — open (no busy block on one or both sides) */
+.block.free.open {
+  background: rgba(0,255,136,0.04);
+  border-left: 2px solid rgba(0,255,136,0.15);
+  color: rgba(0,255,136,0.35);
+  border-top: 1px dashed rgba(0,255,136,0.08);
+  border-right: 1px dashed rgba(0,255,136,0.08);
+  border-bottom: 1px dashed rgba(0,255,136,0.08);
+  animation: none;
+}
+.block.free.open .block-name,
+.block.free.open .block-time { opacity: 0.45; }
+
+@keyframes free-glow {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(0,255,136,0.35), 0 0 12px rgba(0,255,136,0.15);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(0,255,136,0.7), 0 0 28px rgba(0,255,136,0.35), 0 0 48px rgba(0,255,136,0.1);
+  }
+}
+
+[data-theme="light"] .block.free.sandwiched {
+  animation: free-glow-light 2.4s ease-in-out infinite;
+}
+[data-theme="light"] .block.free.open {
+  background: rgba(22,163,74,0.04);
+  border-left: 2px solid rgba(22,163,74,0.15);
+  color: rgba(22,163,74,0.3);
+  border-top: 1px dashed rgba(22,163,74,0.08);
+  border-right: 1px dashed rgba(22,163,74,0.08);
+  border-bottom: 1px dashed rgba(22,163,74,0.08);
+}
+@keyframes free-glow-light {
+  0%, 100% { box-shadow: 0 0 5px rgba(22,163,74,0.3), 0 0 10px rgba(22,163,74,0.1); }
+  50% { box-shadow: 0 0 10px rgba(22,163,74,0.5), 0 0 20px rgba(22,163,74,0.2); }
+}
+
+/* Block entry animation */
+@keyframes block-in {
+  from { opacity: 0; transform: scaleY(0.88) translateY(4px); }
+  to   { opacity: 1; transform: scaleY(1) translateY(0); }
+}
+.block.animate-in { animation: block-in 0.28s ease both; }
+
+/* Merge fade states */
+.block.fading-out { opacity: 0 !important; transform: scaleY(0.9) !important; }
+.block.hidden-block { display: none !important; }
+.block.fading-in { opacity: 0; transform: scaleY(0.9); }
+
+/* ===== RIGHT PANEL ===== */
+.side-panel {
+  display: flex; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden;
+}
+
+.sp-section { border-bottom: 1px solid var(--border); }
+
+.sp-head {
+  padding: 10px 14px;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); display: flex; align-items: center; justify-content: space-between;
+}
+.sp-head .cnt {
+  font-size: 10px; background: var(--bg-raised);
+  padding: 1px 6px; border-radius: 99px; font-weight: 600;
+}
+
+/* Quick actions */
+.quick-row { display: flex; gap: 5px; padding: 10px 12px; }
+.qa {
+  flex: 1; padding: 9px 6px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); text-align: center; cursor: pointer;
+  transition: all 0.13s; background: transparent; color: var(--text-muted);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.qa:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.qa svg { width: 16px; height: 16px; }
+.qa span { font-size: 10px; font-weight: 600; }
+
+/* Free windows */
+.free-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; cursor: pointer; transition: background 0.1s;
+}
+.free-item:hover { background: var(--bg-hover); }
+.fi-day { font-size: 10px; font-weight: 700; font-family: 'Geist Mono', monospace; color: var(--green-neon); width: 26px; flex-shrink: 0; }
+.fi-time { font-size: 12px; font-weight: 600; flex: 1; }
+.fi-dur {
+  font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 99px;
+  background: var(--green-neon-dim); color: var(--green-neon);
+  font-family: 'Geist Mono', monospace;
+}
+
+/* Friend items */
+.fr-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 14px; cursor: pointer; transition: background 0.1s;
+}
+.fr-item:hover { background: var(--bg-hover); }
+.fr-av {
+  width: 26px; height: 26px; border-radius: 99px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; color: white; flex-shrink: 0;
+}
+.fr-av.pink   { background: linear-gradient(135deg, #db2777, #ec4899); }
+.fr-av.cyan   { background: linear-gradient(135deg, #0891b2, #06b6d4); }
+.fr-av.amber  { background: linear-gradient(135deg, #d97706, #f59e0b); }
+.fr-av.purple { background: linear-gradient(135deg, #7c3aed, #a78bfa); }
+
+.fr-name { font-size: 12px; font-weight: 600; flex: 1; }
+.fr-code { font-size: 10px; color: var(--text-muted); font-family: 'Geist Mono', monospace; }
+
+.fr-check {
+  width: 15px; height: 15px; border-radius: 3px;
+  border: 2px solid var(--border-strong); cursor: pointer;
+  transition: all 0.15s; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.fr-check.on { background: var(--accent); border-color: var(--accent); }
+.fr-check.on::after {
+  content: ''; width: 7px; height: 4px;
+  border-left: 2px solid white; border-bottom: 2px solid white;
+  transform: rotate(-45deg) translateY(-1px);
+}
+
+/* Add friend */
+.add-row { display: flex; gap: 5px; padding: 8px 12px 10px; }
+.add-row input {
+  flex: 1; padding: 5px 8px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); font-size: 11px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  background: var(--bg-input); color: var(--text);
+  font-family: 'Geist Mono', monospace; outline: none; transition: border-color 0.15s;
+}
+.add-row input:focus { border-color: var(--accent); }
+.add-row input::placeholder { text-transform: none; font-family: 'Geist', sans-serif; color: var(--text-muted); letter-spacing: 0; font-weight: 400; }
+
+/* Your blocks list */
+.my-block-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 14px; border-bottom: 1px solid var(--border); cursor: pointer;
+  transition: background 0.1s;
+}
+.my-block-row:last-child { border-bottom: none; }
+.my-block-row:hover { background: var(--bg-hover); }
+.mb-day {
+  font-size: 9px; font-weight: 700; font-family: 'Geist Mono', monospace;
+  width: 22px; color: var(--c-you-text); flex-shrink: 0;
+}
+.mb-name { font-size: 12px; font-weight: 600; flex: 1; }
+.mb-time { font-size: 10px; color: var(--text-muted); font-family: 'Geist Mono', monospace; }
+
+/* ===== MOBILE ===== */
+.mobile-bar {
+  display: none; position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--bg); border-top: 1px solid var(--border);
+  z-index: 100; padding: 4px 0 max(4px, env(safe-area-inset-bottom));
+}
+.mobile-bar-inner { display: flex; justify-content: space-around; }
+.mob-tab {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 5px 10px; font-size: 9px; font-weight: 600;
+  color: var(--text-muted); cursor: pointer; text-decoration: none;
+}
+.mob-tab.active { color: var(--accent); }
+.mob-tab svg { width: 18px; height: 18px; }
+
+@media (max-width: 768px) {
+  .layout { grid-template-columns: 1fr; height: calc(100vh - 46px - 52px); }
+  .side-panel { display: none; }
+  .mobile-bar { display: block; }
+  .tab-nav { display: none; }
+  .schedule-grid { grid-template-columns: 30px repeat(7, 1fr); }
+  .t-label { font-size: 8px; }
+  .topbar { padding: 0 10px; }
+  .sub-header { padding: 6px 10px; }
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div class="brand">TimeSync</div>
+  <div class="divider"></div>
+  <div class="tab-nav">
+    <a class="tab active" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Schedule
+    </a>
+    <a class="tab" href="friends.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      Friends <span class="tab-badge">4</span>
+    </a>
+    <a class="tab" href="editor.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Edit
+    </a>
+    <a class="tab" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Import
+    </a>
+  </div>
+  <div class="top-right">
+    <div class="code-pill" title="Copy your friend code" onclick="copyCode(this)">GXBE9G</div>
+    <button class="icon-btn" onclick="toggleTheme()" title="Toggle theme">
+      <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+    <div class="avatar-sm">CM</div>
+  </div>
+</div>
+
+<!-- Mobile Bottom Bar -->
+<div class="mobile-bar">
+  <div class="mobile-bar-inner">
+    <a class="mob-tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Schedule</a>
+    <a class="mob-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/></svg>Friends</a>
+    <a class="mob-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit</a>
+    <a class="mob-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg>More</a>
+  </div>
+</div>
+
+<!-- Main Layout -->
+<div class="layout">
+  <!-- Schedule Area -->
+  <div class="main-area">
+    <div class="sub-header">
+      <div class="chip you active" data-person="you"><span class="dot"></span><span class="chip-label">You</span></div>
+      <div class="chip f1 active" data-person="f1"><span class="dot"></span><span class="chip-label">Alex R.</span></div>
+      <div class="chip f2 active" data-person="f2"><span class="dot"></span><span class="chip-label">Jordan K.</span></div>
+      <div class="chip f3" data-person="f3"><span class="dot"></span><span class="chip-label">Sam T.</span></div>
+      <div class="sub-right">
+        <button class="btn" id="free-btn" onclick="toggleFreeTime()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Free Time
+        </button>
+        <button class="btn btn-merge" id="merge-btn" onclick="toggleMerge()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+          Merged View
+        </button>
+      </div>
+    </div>
+
+    <div class="schedule-wrap">
+      <div class="schedule-grid" id="grid">
+        <!-- Sticky header row injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel -->
+  <div class="side-panel">
+    <!-- Quick Actions -->
+    <div class="sp-section">
+      <div class="quick-row">
+        <button class="qa">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Add Block</span>
+        </button>
+        <button class="qa">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Import</span>
+        </button>
+        <button class="qa">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          <span>Share</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Free Windows (hidden until toggled) -->
+    <div class="sp-section" id="free-panel" style="display:none">
+      <div class="sp-head">Free Windows <span class="cnt" id="free-cnt">0</span></div>
+      <div id="free-list"></div>
+    </div>
+
+    <!-- Friends -->
+    <div class="sp-section">
+      <div class="sp-head">Friends <span class="cnt">4</span></div>
+      <div class="fr-item">
+        <div class="fr-av pink">AR</div>
+        <div class="fr-name">Alex R.</div>
+        <div class="fr-code">H7KM3N</div>
+        <div class="fr-check on" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="fr-item">
+        <div class="fr-av cyan">JK</div>
+        <div class="fr-name">Jordan K.</div>
+        <div class="fr-code">P4WR8T</div>
+        <div class="fr-check on" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="fr-item">
+        <div class="fr-av amber">ST</div>
+        <div class="fr-name">Sam T.</div>
+        <div class="fr-code">Y2DX5V</div>
+        <div class="fr-check" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="fr-item">
+        <div class="fr-av purple">MC</div>
+        <div class="fr-name">Maya C.</div>
+        <div class="fr-code">B9FJ6W</div>
+        <div class="fr-check on" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="add-row">
+        <input type="text" placeholder="Enter friend code" maxlength="6" />
+        <button class="btn btn-accent" style="padding:5px 10px;">Add</button>
+      </div>
+    </div>
+
+    <!-- Your Blocks -->
+    <div class="sp-section">
+      <div class="sp-head">Your Blocks <span class="cnt">5</span></div>
+      <div class="my-block-row"><span class="mb-day">M W</span><span class="mb-name">Math 201</span><span class="mb-time">9:00a</span></div>
+      <div class="my-block-row"><span class="mb-day">T R</span><span class="mb-name">CS 301</span><span class="mb-time">10:00a</span></div>
+      <div class="my-block-row"><span class="mb-day">F</span><span class="mb-name">English 102</span><span class="mb-time">11:00a</span></div>
+      <div class="my-block-row"><span class="mb-day">M</span><span class="mb-name">Physics Lab</span><span class="mb-time">1:00p</span></div>
+      <div class="my-block-row"><span class="mb-day">S S</span><span class="mb-name">Work Shift</span><span class="mb-time">5:00p</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===== THEME ===== */
+function toggleTheme() {
+  const h = document.documentElement;
+  const isDark = h.getAttribute('data-theme') !== 'light';
+  h.setAttribute('data-theme', isDark ? 'light' : '');
+  const icon = document.getElementById('theme-icon');
+  icon.innerHTML = isDark
+    ? `<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>`
+    : `<path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>`;
+}
+
+function copyCode(el) {
+  navigator.clipboard.writeText('GXBE9G').catch(()=>{});
+  const orig = el.textContent;
+  el.textContent = 'Copied!';
+  el.style.color = 'var(--green-neon)';
+  setTimeout(() => { el.textContent = orig; el.style.color = ''; }, 1400);
+}
+
+/* ===== SCHEDULE DATA ===== */
+const CELL_H = 44;
+const START_H = 8;
+const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const DAY_NUMS = [24,25,26,27,28,29,30];
+const TODAY = 0;
+
+const scheduleBlocks = [
+  // You (blue)
+  {day:0, start:9,   end:10.5, label:'Math 201',    sub:'9:00 AM – 10:30 AM', cls:'you'},
+  {day:0, start:13,  end:14,   label:'Physics Lab',  sub:'1:00 PM – 2:00 PM', cls:'you'},
+  {day:1, start:10,  end:11.5, label:'CS 301',       sub:'10:00 AM – 11:30 AM', cls:'you'},
+  {day:2, start:9,   end:10.5, label:'Math 201',     sub:'9:00 AM – 10:30 AM', cls:'you'},
+  {day:3, start:10,  end:11.5, label:'CS 301',       sub:'10:00 AM – 11:30 AM', cls:'you'},
+  {day:4, start:11,  end:12,   label:'English 102',  sub:'11:00 AM – 12:00 PM', cls:'you'},
+  {day:5, start:17,  end:21,   label:'Work Shift',   sub:'5:00 PM – 9:00 PM', cls:'you'},
+  {day:6, start:17,  end:21,   label:'Work Shift',   sub:'5:00 PM – 9:00 PM', cls:'you'},
+  // Alex (pink)
+  {day:0, start:10,  end:11.5, label:'Bio 101',      sub:'10:00 AM – 11:30 AM', cls:'f1'},
+  {day:1, start:9,   end:10,   label:'Chem 201',     sub:'9:00 AM – 10:00 AM', cls:'f1'},
+  {day:1, start:13,  end:14.5, label:'Bio Lab',      sub:'1:00 PM – 2:30 PM',  cls:'f1'},
+  {day:2, start:10,  end:11.5, label:'Bio 101',      sub:'10:00 AM – 11:30 AM', cls:'f1'},
+  {day:3, start:9,   end:10,   label:'Chem 201',     sub:'9:00 AM – 10:00 AM', cls:'f1'},
+  {day:4, start:14,  end:15.5, label:'Bio 101',      sub:'2:00 PM – 3:30 PM',  cls:'f1'},
+  // Jordan (cyan)
+  {day:0, start:11,  end:12,   label:'Art 105',      sub:'11:00 AM – 12:00 PM', cls:'f2'},
+  {day:1, start:11,  end:12.5, label:'Design',       sub:'11:00 AM – 12:30 PM', cls:'f2'},
+  {day:2, start:14,  end:15.5, label:'Art 105',      sub:'2:00 PM – 3:30 PM',  cls:'f2'},
+  {day:3, start:11,  end:12.5, label:'Design',       sub:'11:00 AM – 12:30 PM', cls:'f2'},
+  {day:4, start:9,   end:10.5, label:'Sculpture',    sub:'9:00 AM – 10:30 AM', cls:'f2'},
+];
+
+/* ===== BUILD GRID ===== */
+const grid = document.getElementById('grid');
+
+// Sticky header
+const corner = document.createElement('div');
+corner.className = 'time-corner';
+grid.appendChild(corner);
+
+DAYS.forEach((d, i) => {
+  const dh = document.createElement('div');
+  dh.className = 'day-header' + (i === TODAY ? ' today' : '');
+  dh.innerHTML = `<div class="d-name">${d}</div><div class="d-num">${DAY_NUMS[i]}</div>`;
+  grid.appendChild(dh);
+});
+
+// Time rows
+for (let h = START_H; h <= 21; h++) {
+  const ampm = h >= 12 ? 'p' : 'a';
+  const disp = h > 12 ? h - 12 : h;
+  const tl = document.createElement('div');
+  tl.className = 't-label';
+  tl.textContent = `${disp}${ampm}`;
+  grid.appendChild(tl);
+  for (let d = 0; d < 7; d++) {
+    const c = document.createElement('div');
+    c.className = 'grid-cell';
+    grid.appendChild(c);
+  }
+}
+
+/* ===== POSITION BLOCKS ===== */
+let individualEls = [];
+let mergedEls = [];
+let freeEls = [];
+let mergedMode = false;
+let freeMode = false;
+const activePeople = new Set(['you','f1','f2']);
+
+function getColMetrics() {
+  const cells = grid.querySelectorAll('.grid-cell');
+  if (!cells.length) return null;
+  const tw = grid.querySelector('.t-label')?.getBoundingClientRect().width || 44;
+  const cw = cells[0].getBoundingClientRect().width;
+  const headerH = grid.querySelector('.day-header')?.getBoundingClientRect().height || 44;
+  return { tw, cw, headerH };
+}
+
+function buildIndividualBlocks() {
+  individualEls.forEach(el => el.remove());
+  individualEls = [];
+
+  const m = getColMetrics();
+  if (!m) return;
+
+  scheduleBlocks.forEach((b, idx) => {
+    const el = document.createElement('div');
+    el.className = `block ${b.cls} animate-in`;
+    el.style.cssText = `
+      top: ${m.headerH + (b.start - START_H) * CELL_H}px;
+      height: ${(b.end - b.start) * CELL_H - 2}px;
+      left: ${m.tw + b.day * m.cw + 2}px;
+      width: ${m.cw - 4}px;
+      animation-delay: ${idx * 18}ms;
+    `;
+    el.innerHTML = `<div class="block-name">${b.label}</div><div class="block-time">${b.sub}</div>`;
+    grid.appendChild(el);
+    individualEls.push(el);
+  });
+}
+
+function computeMergedIntervals() {
+  const byDay = {};
+  for (let d = 0; d < 7; d++) byDay[d] = [];
+  scheduleBlocks
+    .filter(b => activePeople.has(b.cls))
+    .forEach(b => byDay[b.day].push({start: b.start, end: b.end}));
+
+  const result = {};
+  for (let d = 0; d < 7; d++) {
+    const ivs = byDay[d].sort((a,b) => a.start - b.start);
+    const merged = [];
+    for (const iv of ivs) {
+      if (merged.length && iv.start <= merged[merged.length-1].end) {
+        merged[merged.length-1].end = Math.max(merged[merged.length-1].end, iv.end);
+      } else {
+        merged.push({...iv});
+      }
+    }
+    result[d] = merged;
+  }
+  return result;
+}
+
+function computeFreeIntervals(mergedBusy) {
+  const WORK_START = 8, WORK_END = 20;
+  const result = [];
+  for (let d = 0; d < 5; d++) { // Mon–Fri only
+    const busy = mergedBusy[d];
+    let cursor = WORK_START;
+    for (const b of busy) {
+      if (b.start > cursor + 0.5) {
+        result.push({day: d, start: cursor, end: b.start});
+      }
+      cursor = Math.max(cursor, b.end);
+    }
+    if (cursor < WORK_END - 0.5) {
+      result.push({day: d, start: cursor, end: WORK_END});
+    }
+  }
+  return result;
+}
+
+function buildMergedBlocks() {
+  mergedEls.forEach(el => el.remove());
+  mergedEls = [];
+  const m = getColMetrics();
+  if (!m) return;
+  const merged = computeMergedIntervals();
+  Object.entries(merged).forEach(([dayStr, ivs]) => {
+    const d = parseInt(dayStr);
+    ivs.forEach(iv => {
+      const el = document.createElement('div');
+      el.className = 'block merged fading-in';
+      const dur = iv.end - iv.start;
+      el.style.cssText = `
+        top: ${m.headerH + (iv.start - START_H) * CELL_H}px;
+        height: ${dur * CELL_H - 2}px;
+        left: ${m.tw + d * m.cw + 2}px;
+        width: ${m.cw - 4}px;
+        transition: opacity 0.32s ease, transform 0.32s ease;
+      `;
+      const h = Math.floor(dur);
+      const min = Math.round((dur % 1) * 60);
+      const durStr = min ? `${h}h ${min}m` : `${h}h`;
+      el.innerHTML = `<div class="block-name">Busy</div><div class="block-time">${durStr}</div>`;
+      grid.appendChild(el);
+      mergedEls.push(el);
+    });
+  });
+}
+
+function buildFreeBlocks() {
+  freeEls.forEach(el => el.remove());
+  freeEls = [];
+  const m = getColMetrics();
+  if (!m) return;
+  const mergedBusy = computeMergedIntervals();
+  const freeSlots = computeFreeIntervals(mergedBusy);
+
+  // Update free panel
+  const freeList = document.getElementById('free-list');
+  freeList.innerHTML = '';
+  document.getElementById('free-cnt').textContent = freeSlots.length;
+
+  const fmtH = t => {
+    const h = Math.floor(t), m = Math.round((t%1)*60);
+    const ap = t >= 12 ? 'PM' : 'AM';
+    const hd = h > 12 ? h-12 : h || 12;
+    return `${hd}:${m.toString().padStart(2,'0')} ${ap}`;
+  };
+  const dur = (s,e) => {
+    const d = e-s; const h=Math.floor(d), m=Math.round((d%1)*60);
+    return m ? `${h}h ${m}m` : `${h}h`;
+  };
+
+  freeSlots.forEach(slot => {
+    // Determine if this free slot is sandwiched between busy blocks
+    const dayBusy = mergedBusy[slot.day] || [];
+    const hasBefore = dayBusy.some(b => b.end <= slot.start + 0.01);
+    const hasAfter = dayBusy.some(b => b.start >= slot.end - 0.01);
+    const isSandwiched = hasBefore && hasAfter;
+
+    const row = document.createElement('div');
+    row.className = 'free-item';
+    row.innerHTML = `
+      <span class="fi-day">${DAYS[slot.day].substring(0,3).toUpperCase()}</span>
+      <span class="fi-time">${fmtH(slot.start)} – ${fmtH(slot.end)}</span>
+      <span class="fi-dur">${dur(slot.start, slot.end)}</span>
+    `;
+    freeList.appendChild(row);
+
+    if (!freeMode) return;
+    const el = document.createElement('div');
+    el.className = `block free ${isSandwiched ? 'sandwiched' : 'open'} animate-in`;
+    el.style.cssText = `
+      top: ${m.headerH + (slot.start - START_H) * CELL_H}px;
+      height: ${(slot.end - slot.start) * CELL_H - 2}px;
+      left: ${m.tw + slot.day * m.cw + 2}px;
+      width: ${m.cw - 4}px;
+    `;
+    el.innerHTML = `<div class="block-name">Free Time</div><div class="block-time">${fmtH(slot.start)} – ${fmtH(slot.end)}</div>`;
+    grid.appendChild(el);
+    freeEls.push(el);
+  });
+}
+
+/* ===== CHIP TOGGLE ===== */
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.onclick = () => {
+    const person = chip.dataset.person;
+    chip.classList.toggle('active');
+    if (chip.classList.contains('active')) {
+      activePeople.add(person);
+    } else {
+      activePeople.delete(person);
+    }
+    if (mergedMode) {
+      // Rebuild merged immediately
+      mergedEls.forEach(el => el.remove());
+      mergedEls = [];
+      buildMergedBlocks();
+      mergedEls.forEach(el => {
+        requestAnimationFrame(() => {
+          el.classList.remove('fading-in');
+          el.style.opacity = '1';
+          el.style.transform = 'scaleY(1)';
+        });
+      });
+    }
+    if (freeMode) buildFreeBlocks();
+  };
+});
+
+/* ===== FREE TIME TOGGLE ===== */
+function toggleFreeTime() {
+  freeMode = !freeMode;
+  const btn = document.getElementById('free-btn');
+  const panel = document.getElementById('free-panel');
+  btn.classList.toggle('btn-green', freeMode);
+  panel.style.display = freeMode ? 'block' : 'none';
+  buildFreeBlocks();
+}
+
+/* ===== MERGE TOGGLE ===== */
+function toggleMerge() {
+  const btn = document.getElementById('merge-btn');
+
+  if (!mergedMode) {
+    mergedMode = true;
+    btn.classList.add('active');
+
+    // Pre-build merged blocks (invisible)
+    buildMergedBlocks();
+
+    // Step 1: fade out individual blocks
+    individualEls.forEach(el => {
+      el.classList.add('fading-out');
+    });
+
+    // Step 2: after transition, hide individual + reveal merged
+    setTimeout(() => {
+      individualEls.forEach(el => el.classList.add('hidden-block'));
+      mergedEls.forEach(el => {
+        // Trigger animation
+        requestAnimationFrame(() => {
+          el.classList.remove('fading-in');
+          el.style.opacity = '1';
+          el.style.transform = 'scaleY(1)';
+        });
+      });
+    }, 320);
+
+  } else {
+    mergedMode = false;
+    btn.classList.remove('active');
+
+    // Fade out merged
+    mergedEls.forEach(el => {
+      el.style.opacity = '0';
+      el.style.transform = 'scaleY(0.9)';
+    });
+
+    // After transition: remove merged, reveal individual
+    setTimeout(() => {
+      mergedEls.forEach(el => el.remove());
+      mergedEls = [];
+      individualEls.forEach(el => {
+        el.classList.remove('hidden-block', 'fading-out');
+        el.style.opacity = '0';
+        el.style.transform = 'scaleY(0.9)';
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            el.style.transition = 'opacity 0.28s ease, transform 0.28s ease';
+            el.style.opacity = '1';
+            el.style.transform = 'scaleY(1)';
+          });
+        });
+      });
+    }, 320);
+  }
+}
+
+/* ===== INIT ===== */
+function init() {
+  buildIndividualBlocks();
+  buildFreeBlocks();
+}
+
+requestAnimationFrame(() => requestAnimationFrame(init));
+window.addEventListener('resize', () => {
+  // Reposition all blocks
+  const m = getColMetrics();
+  if (!m) return;
+  individualEls.forEach(el => {
+    const b = scheduleBlocks[individualEls.indexOf(el)];
+    if (!b) return;
+    el.style.top = `${m.headerH + (b.start - START_H) * CELL_H}px`;
+    el.style.height = `${(b.end - b.start) * CELL_H - 2}px`;
+    el.style.left = `${m.tw + b.day * m.cw + 2}px`;
+    el.style.width = `${m.cw - 4}px`;
+  });
+  if (mergedMode) { buildMergedBlocks(); }
+  if (freeMode) { buildFreeBlocks(); }
+});
+</script>
+</body>
+</html>

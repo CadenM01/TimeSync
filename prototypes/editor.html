@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TimeSync - Edit Schedule Prototype</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f8f9fb; --bg-sidebar: #ffffff; --bg-card: #ffffff; --bg-hover: #f1f3f9;
+  --bg-input: #f4f6fa; --text: #0f1729; --text-secondary: #5b6478;
+  --text-muted: #8b95a9; --border: #e4e8f0; --border-soft: #edf0f7;
+  --accent: #6366f1; --accent-soft: #eef0ff; --accent-hover: #4f46e5;
+  --accent-text: #ffffff; --green: #10b981; --green-soft: #d1fae5;
+  --red: #ef4444; --red-soft: #fee2e2;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04); --shadow: 0 4px 16px rgba(0,0,0,0.06);
+  --radius: 12px; --radius-sm: 8px; --radius-xs: 6px; --sidebar-w: 240px;
+  --cat-school: #6366f1; --cat-school-soft: rgba(99,102,241,0.12);
+  --cat-work: #f59e0b; --cat-work-soft: rgba(245,158,11,0.12);
+  --cat-personal: #ec4899; --cat-personal-soft: rgba(236,72,153,0.12);
+}
+
+[data-theme="dark"] {
+  --bg: #0c0f1a; --bg-sidebar: #111627; --bg-card: #151a2e; --bg-hover: #1c2240;
+  --bg-input: #1c2240; --text: #e2e8f0; --text-secondary: #94a3b8;
+  --text-muted: #64748b; --border: #1e293b; --border-soft: #1a2235;
+  --accent: #818cf8; --accent-soft: rgba(129,140,248,0.12); --accent-hover: #a5b4fc;
+  --accent-text: #0f1729; --green: #34d399; --green-soft: rgba(52,211,153,0.12);
+  --red: #f87171; --red-soft: rgba(248,113,113,0.12);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.2); --shadow: 0 4px 16px rgba(0,0,0,0.25);
+  --cat-school-soft: rgba(129,140,248,0.15);
+  --cat-work-soft: rgba(251,191,36,0.15);
+  --cat-personal-soft: rgba(244,114,182,0.15);
+}
+
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; display: flex;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Sidebar (reused) */
+.sidebar { width: var(--sidebar-w); height: 100vh; position: fixed; left: 0; top: 0; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 20px 12px; z-index: 100; transition: transform 0.25s ease; }
+.sidebar-brand { padding: 0 12px 20px; border-bottom: 1px solid var(--border-soft); margin-bottom: 8px; }
+.sidebar-brand h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--accent), #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.sidebar-brand span { font-size: 11px; color: var(--text-muted); font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; }
+.nav-section { margin-top: 12px; }
+.nav-section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); padding: 0 12px; margin-bottom: 6px; }
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--radius-sm); color: var(--text-secondary); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s ease; text-decoration: none; margin-bottom: 2px; }
+.nav-item:hover { background: var(--bg-hover); color: var(--text); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.7; }
+.nav-item.active svg { opacity: 1; }
+.nav-badge { margin-left: auto; background: var(--accent); color: var(--accent-text); font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 99px; }
+.sidebar-footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+.user-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm); cursor: pointer; transition: background 0.15s; }
+.user-card:hover { background: var(--bg-hover); }
+.user-avatar { width: 34px; height: 34px; border-radius: 99px; background: linear-gradient(135deg, var(--accent), #ec4899); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.user-card-name { font-size: 13px; font-weight: 600; }
+.user-card-code { font-size: 11px; color: var(--text-muted); font-family: monospace; letter-spacing: 0.06em; }
+
+.main { margin-left: var(--sidebar-w); flex: 1; min-height: 100vh; display: flex; flex-direction: column; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 28px; border-bottom: 1px solid var(--border-soft); background: var(--bg-sidebar); position: sticky; top: 0; z-index: 50; }
+.topbar h2 { font-size: 18px; font-weight: 700; }
+.content { flex: 1; padding: 24px 28px; }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); transition: all 0.15s ease; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn svg { width: 15px; height: 15px; }
+.btn-primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--accent-text); }
+.btn-danger { color: var(--red); border-color: var(--red-soft); background: transparent; }
+.btn-danger:hover { background: var(--red-soft); }
+.btn-success { background: var(--green); color: white; border-color: var(--green); }
+.btn-success:hover { filter: brightness(1.08); color: white; }
+
+/* ========== EDITOR LAYOUT ========== */
+.editor-layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 24px;
+  height: calc(100vh - 80px);
+}
+
+/* Left Panel: Block Form + List */
+.editor-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-body { padding: 18px; }
+
+/* Form */
+.form-group {
+  margin-bottom: 14px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--bg-input);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.time-input-group {
+  display: flex;
+  gap: 6px;
+}
+
+.time-input-group select {
+  flex: 1;
+  padding: 9px 6px;
+  text-align: center;
+}
+
+/* Category picker */
+.category-picker {
+  display: flex;
+  gap: 8px;
+}
+
+.category-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.category-option .cat-dot {
+  width: 10px; height: 10px; border-radius: 99px;
+}
+
+.category-option.school .cat-dot { background: var(--cat-school); }
+.category-option.work .cat-dot { background: var(--cat-work); }
+.category-option.personal .cat-dot { background: var(--cat-personal); }
+
+.category-option.active {
+  color: var(--text);
+}
+.category-option.school.active { border-color: var(--cat-school); background: var(--cat-school-soft); }
+.category-option.work.active { border-color: var(--cat-work); background: var(--cat-work-soft); }
+.category-option.personal.active { border-color: var(--cat-personal); background: var(--cat-personal-soft); }
+
+/* Day picker */
+.day-picker {
+  display: flex;
+  gap: 4px;
+}
+
+.day-pill {
+  flex: 1;
+  padding: 7px 0;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-xs);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.day-pill:hover { border-color: var(--accent); color: var(--accent); }
+.day-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* Block list */
+.block-list {
+  max-height: none;
+}
+
+.block-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border-soft);
+  transition: background 0.15s;
+}
+.block-entry:last-child { border-bottom: none; }
+.block-entry:hover { background: var(--bg-hover); }
+
+.block-color-bar {
+  width: 4px;
+  height: 36px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.block-color-bar.school { background: var(--cat-school); }
+.block-color-bar.work { background: var(--cat-work); }
+.block-color-bar.personal { background: var(--cat-personal); }
+
+.block-entry-info { flex: 1; min-width: 0; }
+.block-entry-name { font-size: 13px; font-weight: 600; }
+.block-entry-details {
+  font-size: 11px; color: var(--text-muted); margin-top: 2px;
+  display: flex; gap: 8px;
+}
+
+.block-entry-days {
+  display: flex; gap: 3px;
+}
+
+.block-entry-days span {
+  font-size: 10px; font-weight: 700; padding: 1px 4px;
+  border-radius: 3px; background: var(--bg-input); color: var(--text-muted);
+}
+
+.block-entry-actions {
+  display: flex; gap: 4px;
+}
+
+.block-entry-actions button {
+  width: 28px; height: 28px; border-radius: var(--radius-xs);
+  border: 1px solid transparent; background: transparent;
+  cursor: pointer; color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.block-entry-actions button:hover { background: var(--bg-hover); color: var(--text); }
+.block-entry-actions button.danger:hover { background: var(--red-soft); color: var(--red); }
+.block-entry-actions button svg { width: 13px; height: 13px; }
+
+/* Right: Preview Grid */
+.preview-grid {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-header {
+  display: grid;
+  grid-template-columns: 50px repeat(7, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-header-cell {
+  padding: 10px 6px; text-align: center;
+  font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+.preview-body {
+  flex: 1; overflow-y: auto;
+  display: grid;
+  grid-template-columns: 50px repeat(7, 1fr);
+  position: relative;
+}
+
+.preview-time {
+  padding: 0 6px; height: 40px;
+  display: flex; align-items: flex-start; justify-content: flex-end;
+  font-size: 10px; color: var(--text-muted); font-weight: 500;
+  border-right: 1px solid var(--border-soft);
+  transform: translateY(-5px);
+}
+
+.preview-cell {
+  height: 40px;
+  border-bottom: 1px solid var(--border-soft);
+  border-right: 1px solid var(--border-soft);
+  cursor: crosshair;
+  transition: background 0.1s;
+}
+.preview-cell:hover { background: var(--accent-soft); }
+
+.preview-block {
+  position: absolute;
+  border-radius: var(--radius-xs);
+  padding: 3px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  overflow: hidden;
+  border-left: 3px solid;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.preview-block:hover { filter: brightness(0.92); }
+.preview-block.school { background: var(--cat-school-soft); border-left-color: var(--cat-school); color: var(--cat-school); }
+.preview-block.work { background: var(--cat-work-soft); border-left-color: var(--cat-work); color: var(--cat-work); }
+.preview-block.personal { background: var(--cat-personal-soft); border-left-color: var(--cat-personal); color: var(--cat-personal); }
+
+/* Import section */
+.import-methods {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.import-method {
+  flex: 1;
+  padding: 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.import-method:hover { border-color: var(--accent); color: var(--accent); }
+.import-method.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
+.import-method svg { width: 24px; height: 24px; margin-bottom: 6px; display: block; margin: 0 auto 6px; }
+.import-method-label { font-size: 12px; font-weight: 600; }
+
+/* Mobile */
+.mobile-header {
+  display: none; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar); position: sticky; top: 0; z-index: 200;
+}
+.mobile-header h1 { font-size: 18px; font-weight: 800; background: linear-gradient(135deg, var(--accent), #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.hamburger { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; cursor: pointer; color: var(--text); }
+.sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 99; }
+
+@media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-overlay.open { display: block; }
+  .mobile-header { display: flex; }
+  .main { margin-left: 0; }
+  .topbar { display: none; }
+  .content { padding: 16px; }
+  .editor-layout { grid-template-columns: 1fr; height: auto; }
+  .preview-grid { min-height: 400px; }
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="mobile-header">
+  <h1>TimeSync</h1>
+  <button class="hamburger" onclick="toggleSidebar()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+</div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-brand"><h1>TimeSync</h1><span>Schedule Planner</span></div>
+  <div class="nav-section">
+    <div class="nav-section-label">Menu</div>
+    <a class="nav-item" href="dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>My Schedule</a>
+    <a class="nav-item" href="friends.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Friends<span class="nav-badge">4</span></a>
+    <a class="nav-item active" href="editor.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit Schedule</a>
+    <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Import Schedule</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">Settings</div>
+    <a class="nav-item" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>Settings</a>
+  </div>
+  <div class="sidebar-footer">
+    <div class="user-card">
+      <div class="user-avatar">CM</div>
+      <div class="user-card-info"><div class="user-card-name">Caden Maki</div><div class="user-card-code">GXBE9G</div></div>
+    </div>
+  </div>
+</nav>
+
+<main class="main">
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:16px;">
+      <h2>Edit Schedule</h2>
+      <span style="font-size:13px;color:var(--text-muted)">5 blocks</span>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn" onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        Theme
+      </button>
+      <button class="btn-success btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Save Schedule
+      </button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="editor-layout">
+      <!-- Left: Form + Block List -->
+      <div class="editor-panel">
+        <!-- Add Block Form -->
+        <div class="card">
+          <div class="card-header">
+            Add Block
+            <button class="btn" style="padding:5px 10px;font-size:12px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Import
+            </button>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label>Block Name</label>
+              <input type="text" placeholder="e.g. Math 201, Work Shift" value="Physics Lab" />
+            </div>
+
+            <div class="form-group">
+              <label>Category</label>
+              <div class="category-picker">
+                <button class="category-option school active" onclick="selectCat(this)">
+                  <span class="cat-dot"></span> School
+                </button>
+                <button class="category-option work" onclick="selectCat(this)">
+                  <span class="cat-dot"></span> Work
+                </button>
+                <button class="category-option personal" onclick="selectCat(this)">
+                  <span class="cat-dot"></span> Personal
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Days</label>
+              <div class="day-picker">
+                <button class="day-pill active">M</button>
+                <button class="day-pill">T</button>
+                <button class="day-pill active">W</button>
+                <button class="day-pill">T</button>
+                <button class="day-pill">F</button>
+                <button class="day-pill">S</button>
+                <button class="day-pill">S</button>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Start Time</label>
+                <div class="time-input-group">
+                  <select><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select>
+                  <select><option>00</option><option>15</option><option selected>30</option><option>45</option></select>
+                  <select><option>AM</option><option selected>PM</option></select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>End Time</label>
+                <div class="time-input-group">
+                  <select><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select>
+                  <select><option selected>00</option><option>15</option><option>30</option><option>45</option></select>
+                  <select><option>AM</option><option selected>PM</option></select>
+                </div>
+              </div>
+            </div>
+
+            <button class="btn-primary btn" style="width:100%;justify-content:center;margin-top:4px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add Block
+            </button>
+          </div>
+        </div>
+
+        <!-- Existing Blocks -->
+        <div class="card block-list">
+          <div class="card-header">
+            Your Blocks
+            <span style="font-size:12px;color:var(--text-muted);font-weight:500;">5 blocks</span>
+          </div>
+
+          <div class="block-entry">
+            <div class="block-color-bar school"></div>
+            <div class="block-entry-info">
+              <div class="block-entry-name">Math 201</div>
+              <div class="block-entry-details">
+                <span>9:00 - 10:30 AM</span>
+                <div class="block-entry-days"><span>M</span><span>W</span></div>
+              </div>
+            </div>
+            <div class="block-entry-actions">
+              <button title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="danger" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+            </div>
+          </div>
+
+          <div class="block-entry">
+            <div class="block-color-bar school"></div>
+            <div class="block-entry-info">
+              <div class="block-entry-name">CS 301</div>
+              <div class="block-entry-details">
+                <span>10:00 - 11:30 AM</span>
+                <div class="block-entry-days"><span>T</span><span>R</span></div>
+              </div>
+            </div>
+            <div class="block-entry-actions">
+              <button title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="danger" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+            </div>
+          </div>
+
+          <div class="block-entry">
+            <div class="block-color-bar school"></div>
+            <div class="block-entry-info">
+              <div class="block-entry-name">English 102</div>
+              <div class="block-entry-details">
+                <span>11:00 AM - 12:00 PM</span>
+                <div class="block-entry-days"><span>F</span></div>
+              </div>
+            </div>
+            <div class="block-entry-actions">
+              <button title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="danger" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+            </div>
+          </div>
+
+          <div class="block-entry">
+            <div class="block-color-bar school"></div>
+            <div class="block-entry-info">
+              <div class="block-entry-name">Physics Lab</div>
+              <div class="block-entry-details">
+                <span>1:00 - 2:00 PM</span>
+                <div class="block-entry-days"><span>M</span></div>
+              </div>
+            </div>
+            <div class="block-entry-actions">
+              <button title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="danger" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+            </div>
+          </div>
+
+          <div class="block-entry">
+            <div class="block-color-bar work"></div>
+            <div class="block-entry-info">
+              <div class="block-entry-name">Work Shift</div>
+              <div class="block-entry-details">
+                <span>5:00 - 9:00 PM</span>
+                <div class="block-entry-days"><span>S</span><span>S</span></div>
+              </div>
+            </div>
+            <div class="block-entry-actions">
+              <button title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="danger" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Live Preview Grid -->
+      <div class="preview-grid" id="preview-grid">
+        <div class="preview-header">
+          <div class="preview-header-cell"></div>
+          <div class="preview-header-cell">Mon</div>
+          <div class="preview-header-cell">Tue</div>
+          <div class="preview-header-cell">Wed</div>
+          <div class="preview-header-cell">Thu</div>
+          <div class="preview-header-cell">Fri</div>
+          <div class="preview-header-cell">Sat</div>
+          <div class="preview-header-cell">Sun</div>
+        </div>
+        <div class="preview-body" id="preview-body"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
+}
+
+function selectCat(el) {
+  el.parentElement.querySelectorAll('.category-option').forEach(o => o.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// Day pill toggle
+document.querySelectorAll('.day-pill').forEach(p => {
+  p.onclick = () => p.classList.toggle('active');
+});
+
+// Build preview grid
+const hours = [];
+for (let h = 8; h <= 21; h++) {
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const display = h > 12 ? h - 12 : h;
+  hours.push(`${display} ${ampm}`);
+}
+
+const previewBody = document.getElementById('preview-body');
+hours.forEach(label => {
+  const t = document.createElement('div');
+  t.className = 'preview-time';
+  t.textContent = label;
+  previewBody.appendChild(t);
+  for (let d = 0; d < 7; d++) {
+    const c = document.createElement('div');
+    c.className = 'preview-cell';
+    previewBody.appendChild(c);
+  }
+});
+
+// Demo blocks on preview
+const demoBlocks = [
+  { day: 0, start: 9, end: 10.5, label: 'Math 201', cls: 'school' },
+  { day: 2, start: 9, end: 10.5, label: 'Math 201', cls: 'school' },
+  { day: 1, start: 10, end: 11.5, label: 'CS 301', cls: 'school' },
+  { day: 3, start: 10, end: 11.5, label: 'CS 301', cls: 'school' },
+  { day: 4, start: 11, end: 12, label: 'English 102', cls: 'school' },
+  { day: 0, start: 13, end: 14, label: 'Physics Lab', cls: 'school' },
+  { day: 5, start: 17, end: 21, label: 'Work Shift', cls: 'work' },
+  { day: 6, start: 17, end: 21, label: 'Work Shift', cls: 'work' },
+];
+
+const cellH = 40;
+const startHour = 8;
+
+function positionPreviewBlocks() {
+  document.querySelectorAll('.preview-block').forEach(b => b.remove());
+  const cells = previewBody.querySelectorAll('.preview-cell');
+  if (!cells.length) return;
+  const timeColW = previewBody.querySelector('.preview-time')?.getBoundingClientRect().width || 50;
+  const cellW = cells[0].getBoundingClientRect().width;
+
+  demoBlocks.forEach(b => {
+    const el = document.createElement('div');
+    el.className = `preview-block ${b.cls}`;
+    const top = (b.start - startHour) * cellH;
+    const h = (b.end - b.start) * cellH;
+    const left = timeColW + b.day * cellW + 2;
+    el.style.cssText = `position:absolute;top:${top}px;height:${h}px;left:${left}px;width:${cellW - 4}px;`;
+    el.innerHTML = `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${b.label}</div>`;
+    previewBody.appendChild(el);
+  });
+}
+
+requestAnimationFrame(() => requestAnimationFrame(positionPreviewBlocks));
+window.addEventListener('resize', positionPreviewBlocks);
+</script>
+</body>
+</html>

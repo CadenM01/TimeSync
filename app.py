@@ -22,7 +22,7 @@ if _env_path.is_file():
                 if _key and _key not in os.environ:
                     os.environ[_key] = _val
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
@@ -442,6 +442,11 @@ def db_unavailable_response():
 @app.get("/")
 def index():
     return render_template("index.html")
+
+
+@app.get("/prototypes/<path:filename>")
+def serve_prototype(filename):
+    return send_from_directory("prototypes", filename)
 
 
 # ---------- Auth routes ----------
