@@ -1,7 +1,7 @@
 // static/app.js
 
 const aBusy = []; // My Schedule busy blocks
-const bBusy = []; // Comparison editor busy blocks
+const bBusy = []; // Comparison editor busy blocks (legacy editor)
 const comparisonSchedules = [];
 let selectedComparisonId = null;
 let activeProfileKey = null; // currently loaded profile ID in memory
@@ -15,14 +15,24 @@ const USER_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{2,31}$/;
 const THEME_STORAGE_KEY = "timesync_theme";
 const THEME_COOKIE_KEY = "timesync_theme";
 const THEME_COOKIE_DAYS = 365;
-let lastOverlapFreeData = null;
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-// Calendar window + resolution
-const START_HOUR = 7;   // 7:00 AM
-const END_HOUR = 22;    // 10:00 PM (not labeled)
-const SLOT_MIN = 5;     // 5-min render grid for accurate placement
+// ---------- Concept C Grid Constants ----------
+const CELL_H = 44; // pixels per hour
+const GRID_START_H = 8; // 8 AM
+const GRID_END_H = 21; // 9 PM
+const FRIEND_CLASSES = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'];
+const FRIEND_COLORS = ['pink', 'cyan', 'amber', 'purple', 'green', 'rose'];
+const AVATAR_COLORS = ['pink', 'cyan', 'amber', 'purple', 'green', 'rose'];
+
+// ---------- Concept C state ----------
+let individualEls = [];
+let mergedEls = [];
+let freeEls = [];
+let mergedMode = false;
+let freeMode = false;
+const activePeople = new Set(['you']);
 
 // ---------- Time helpers ----------
 function toMinutes(hhmm) {
@@ -51,44 +61,14 @@ function makeId() {
   return `cmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-const BUSY_BLOCK_PALETTE_LIGHT = [
-  { fill: "rgba(99, 102, 241, 0.30)", border: "rgba(99, 102, 241, 0.62)" },
-  { fill: "rgba(249, 115, 22, 0.26)", border: "rgba(234, 88, 12, 0.68)" },
-  { fill: "rgba(217, 70, 239, 0.24)", border: "rgba(162, 28, 175, 0.68)" },
-  { fill: "rgba(245, 158, 11, 0.28)", border: "rgba(245, 158, 11, 0.62)" },
-  { fill: "rgba(56, 189, 248, 0.28)", border: "rgba(56, 189, 248, 0.62)" },
-  { fill: "rgba(71, 85, 105, 0.24)", border: "rgba(51, 65, 85, 0.68)" },
-  { fill: "rgba(132, 204, 22, 0.28)", border: "rgba(132, 204, 22, 0.62)" },
-  { fill: "rgba(168, 85, 247, 0.28)", border: "rgba(168, 85, 247, 0.62)" },
-];
-
-const BUSY_BLOCK_PALETTE_DARK = [
-  { fill: "rgba(96, 165, 250, 0.50)", border: "rgba(147, 197, 253, 0.95)" },
-  { fill: "rgba(251, 146, 60, 0.48)", border: "rgba(253, 186, 116, 0.95)" },
-  { fill: "rgba(236, 72, 153, 0.50)", border: "rgba(249, 168, 212, 0.96)" },
-  { fill: "rgba(34, 211, 238, 0.48)", border: "rgba(103, 232, 249, 0.95)" },
-  { fill: "rgba(168, 85, 247, 0.56)", border: "rgba(216, 180, 254, 0.99)" },
-  { fill: "rgba(248, 113, 113, 0.44)", border: "rgba(252, 165, 165, 0.95)" },
-  { fill: "rgba(250, 204, 21, 0.50)", border: "rgba(253, 230, 138, 0.97)" },
-  { fill: "rgba(250, 204, 21, 0.44)", border: "rgba(253, 224, 71, 0.95)" },
-];
-
-function getBusyPalette() {
-  return document.body.classList.contains("dark-mode")
-    ? BUSY_BLOCK_PALETTE_DARK
-    : BUSY_BLOCK_PALETTE_LIGHT;
-}
-
 // "14:30" -> "2:30 PM"
 function to12Hour(hhmm) {
   const [hhStr, mmStr] = hhmm.split(":");
   let hh = parseInt(hhStr, 10);
   const mm = parseInt(mmStr, 10);
-
   const ampm = hh >= 12 ? "PM" : "AM";
   hh = hh % 12;
   if (hh === 0) hh = 12;
-
   return `${hh}:${String(mm).padStart(2, "0")} ${ampm}`;
 }
 
@@ -99,6 +79,485 @@ function formatRange12(start, end) {
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
+
+// ---------- Concept C data helpers ----------
+
+// Convert "09:30" → 9.5
+function hhmmToDecimal(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h + m / 60;
+}
+
+// Format decimal hours → "9:30 AM"
+function decimalToTimeStr(t) {
+  const h = Math.floor(t), m = Math.round((t % 1) * 60);
+  const ap = t >= 12 ? 'PM' : 'AM';
+  const hd = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+  return `${hd}:${m.toString().padStart(2, '0')} ${ap}`;
+}
+
+// Get all schedule blocks in Concept C format from current data
+function getAllScheduleBlocks() {
+  const blocks = [];
+
+  // User's blocks
+  aBusy.forEach(b => {
+    const dayIdx = DAYS.indexOf(b.day);
+    if (dayIdx === -1) return;
+    const start = hhmmToDecimal(b.start);
+    const end = hhmmToDecimal(b.end);
+    blocks.push({
+      day: dayIdx, start, end,
+      label: 'Busy Block',
+      sub: `${decimalToTimeStr(start)} – ${decimalToTimeStr(end)}`,
+      cls: 'you'
+    });
+  });
+
+  // Friends' blocks
+  comparisonSchedules.forEach((comp, idx) => {
+    const cls = FRIEND_CLASSES[idx] || `f${idx + 1}`;
+    (comp.busy || []).forEach(b => {
+      const dayIdx = DAYS.indexOf(b.day);
+      if (dayIdx === -1) return;
+      const start = hhmmToDecimal(b.start);
+      const end = hhmmToDecimal(b.end);
+      blocks.push({
+        day: dayIdx, start, end,
+        label: comp.name || 'Friend',
+        sub: `${decimalToTimeStr(start)} – ${decimalToTimeStr(end)}`,
+        cls
+      });
+    });
+  });
+
+  return blocks;
+}
+
+// ---------- Concept C grid building ----------
+
+function buildGridStructure() {
+  const grid = document.getElementById('grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  // corner
+  const corner = document.createElement('div');
+  corner.className = 'time-corner';
+  grid.appendChild(corner);
+
+  // Day headers with today highlight
+  const today = new Date().getDay(); // 0=Sun, 1=Mon...
+  const todayCol = today === 0 ? 6 : today - 1; // convert to Mon=0
+  const now = new Date();
+  DAYS.forEach((d, i) => {
+    const dh = document.createElement('div');
+    const dateNum = new Date(now);
+    const diff = i - todayCol;
+    dateNum.setDate(now.getDate() + diff);
+    dh.className = 'day-header' + (i === todayCol ? ' today' : '');
+    dh.innerHTML = `<div class="d-name">${d}</div><div class="d-num">${dateNum.getDate()}</div>`;
+    grid.appendChild(dh);
+  });
+
+  // Time rows
+  for (let h = GRID_START_H; h <= GRID_END_H; h++) {
+    const ampm = h >= 12 ? 'p' : 'a';
+    const disp = h > 12 ? h - 12 : h;
+    const tl = document.createElement('div');
+    tl.className = 't-label';
+    tl.textContent = `${disp}${ampm}`;
+    grid.appendChild(tl);
+    for (let d = 0; d < 7; d++) {
+      const c = document.createElement('div');
+      c.className = 'grid-cell';
+      grid.appendChild(c);
+    }
+  }
+}
+
+function getColMetrics() {
+  const grid = document.getElementById('grid');
+  if (!grid) return null;
+  const cells = grid.querySelectorAll('.grid-cell');
+  if (!cells.length) return null;
+  const tw = grid.querySelector('.t-label')?.getBoundingClientRect().width || 44;
+  const cw = cells[0].getBoundingClientRect().width;
+  const headerH = grid.querySelector('.day-header')?.getBoundingClientRect().height || 44;
+  return { tw, cw, headerH };
+}
+
+// ---------- Concept C block rendering ----------
+
+function buildIndividualBlocks() {
+  individualEls.forEach(el => el.remove());
+  individualEls = [];
+
+  const m = getColMetrics();
+  if (!m) return;
+
+  const grid = document.getElementById('grid');
+  if (!grid) return;
+
+  const allBlocks = getAllScheduleBlocks();
+  allBlocks.forEach((b, idx) => {
+    if (!activePeople.has(b.cls)) return;
+    const el = document.createElement('div');
+    el.className = `block ${b.cls} animate-in`;
+    el.style.cssText = `
+      top: ${m.headerH + (b.start - GRID_START_H) * CELL_H}px;
+      height: ${(b.end - b.start) * CELL_H - 2}px;
+      left: ${m.tw + b.day * m.cw + 2}px;
+      width: ${m.cw - 4}px;
+      animation-delay: ${idx * 18}ms;
+    `;
+    el.innerHTML = `<div class="block-name">${b.label}</div><div class="block-time">${b.sub}</div>`;
+    grid.appendChild(el);
+    individualEls.push(el);
+  });
+}
+
+// ---------- Merge intervals algorithm ----------
+
+function computeMergedIntervals() {
+  const byDay = {};
+  for (let d = 0; d < 7; d++) byDay[d] = [];
+
+  getAllScheduleBlocks()
+    .filter(b => activePeople.has(b.cls))
+    .forEach(b => byDay[b.day].push({ start: b.start, end: b.end }));
+
+  const result = {};
+  for (let d = 0; d < 7; d++) {
+    const ivs = byDay[d].sort((a, b) => a.start - b.start);
+    const merged = [];
+    for (const iv of ivs) {
+      if (merged.length && iv.start <= merged[merged.length - 1].end) {
+        merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, iv.end);
+      } else {
+        merged.push({ ...iv });
+      }
+    }
+    result[d] = merged;
+  }
+  return result;
+}
+
+function computeFreeIntervals(mergedBusy) {
+  const WORK_START = GRID_START_H, WORK_END = GRID_END_H;
+  const result = [];
+  for (let d = 0; d < 5; d++) { // Mon–Fri only
+    const busy = mergedBusy[d];
+    let cursor = WORK_START;
+    for (const b of busy) {
+      if (b.start > cursor + 0.5) {
+        result.push({ day: d, start: cursor, end: b.start });
+      }
+      cursor = Math.max(cursor, b.end);
+    }
+    if (cursor < WORK_END - 0.5) {
+      result.push({ day: d, start: cursor, end: WORK_END });
+    }
+  }
+  return result;
+}
+
+function buildMergedBlocks() {
+  mergedEls.forEach(el => el.remove());
+  mergedEls = [];
+  const m = getColMetrics();
+  if (!m) return;
+  const grid = document.getElementById('grid');
+  if (!grid) return;
+
+  const merged = computeMergedIntervals();
+  Object.entries(merged).forEach(([dayStr, ivs]) => {
+    const d = parseInt(dayStr);
+    ivs.forEach(iv => {
+      const el = document.createElement('div');
+      el.className = 'block merged fading-in';
+      const dur = iv.end - iv.start;
+      el.style.cssText = `
+        top: ${m.headerH + (iv.start - GRID_START_H) * CELL_H}px;
+        height: ${dur * CELL_H - 2}px;
+        left: ${m.tw + d * m.cw + 2}px;
+        width: ${m.cw - 4}px;
+        transition: opacity 0.32s ease, transform 0.32s ease;
+      `;
+      const h = Math.floor(dur);
+      const min = Math.round((dur % 1) * 60);
+      const durStr = min ? `${h}h ${min}m` : `${h}h`;
+      el.innerHTML = `<div class="block-name">Busy</div><div class="block-time">${durStr}</div>`;
+      grid.appendChild(el);
+      mergedEls.push(el);
+    });
+  });
+}
+
+function buildFreeBlocks() {
+  freeEls.forEach(el => el.remove());
+  freeEls = [];
+  const m = getColMetrics();
+  if (!m) return;
+  const grid = document.getElementById('grid');
+  if (!grid) return;
+
+  const mergedBusy = computeMergedIntervals();
+  const freeSlots = computeFreeIntervals(mergedBusy);
+
+  // Update free panel
+  const freeList = document.getElementById('free-list');
+  const freeCnt = document.getElementById('free-cnt');
+  if (freeList) freeList.innerHTML = '';
+  if (freeCnt) freeCnt.textContent = freeSlots.length;
+
+  const fmtH = t => {
+    const h = Math.floor(t), m = Math.round((t % 1) * 60);
+    const ap = t >= 12 ? 'PM' : 'AM';
+    const hd = h > 12 ? h - 12 : h || 12;
+    return `${hd}:${m.toString().padStart(2, '0')} ${ap}`;
+  };
+  const dur = (s, e) => {
+    const d = e - s;
+    const h = Math.floor(d), m = Math.round((d % 1) * 60);
+    return m ? `${h}h ${m}m` : `${h}h`;
+  };
+
+  freeSlots.forEach(slot => {
+    const dayBusy = mergedBusy[slot.day] || [];
+    const hasBefore = dayBusy.some(b => b.end <= slot.start + 0.01);
+    const hasAfter = dayBusy.some(b => b.start >= slot.end - 0.01);
+    const isSandwiched = hasBefore && hasAfter;
+
+    if (freeList) {
+      const row = document.createElement('div');
+      row.className = 'free-item';
+      row.innerHTML = `
+        <span class="fi-day">${DAYS[slot.day].substring(0, 3).toUpperCase()}</span>
+        <span class="fi-time">${fmtH(slot.start)} – ${fmtH(slot.end)}</span>
+        <span class="fi-dur">${dur(slot.start, slot.end)}</span>
+      `;
+      freeList.appendChild(row);
+    }
+
+    if (!freeMode) return;
+    const el = document.createElement('div');
+    el.className = `block free ${isSandwiched ? 'sandwiched' : 'open'} animate-in`;
+    el.style.cssText = `
+      top: ${m.headerH + (slot.start - GRID_START_H) * CELL_H}px;
+      height: ${(slot.end - slot.start) * CELL_H - 2}px;
+      left: ${m.tw + slot.day * m.cw + 2}px;
+      width: ${m.cw - 4}px;
+    `;
+    el.innerHTML = `<div class="block-name">Free Time</div><div class="block-time">${fmtH(slot.start)} – ${fmtH(slot.end)}</div>`;
+    grid.appendChild(el);
+    freeEls.push(el);
+  });
+}
+
+// ---------- Toggle handlers ----------
+
+function toggleFreeTime() {
+  freeMode = !freeMode;
+  const btn = document.getElementById('free-btn');
+  const panel = document.getElementById('free-panel');
+  if (btn) btn.classList.toggle('active', freeMode);
+  if (panel) panel.style.display = freeMode ? 'block' : 'none';
+  buildFreeBlocks();
+}
+
+function toggleMerge() {
+  const btn = document.getElementById('merge-btn');
+
+  if (!mergedMode) {
+    mergedMode = true;
+    if (btn) btn.classList.add('active');
+
+    buildMergedBlocks();
+
+    individualEls.forEach(el => {
+      el.classList.add('fading-out');
+    });
+
+    setTimeout(() => {
+      individualEls.forEach(el => el.classList.add('hidden-block'));
+      mergedEls.forEach(el => {
+        requestAnimationFrame(() => {
+          el.classList.remove('fading-in');
+          el.style.opacity = '1';
+          el.style.transform = 'scaleY(1)';
+        });
+      });
+    }, 320);
+
+  } else {
+    mergedMode = false;
+    if (btn) btn.classList.remove('active');
+
+    mergedEls.forEach(el => {
+      el.style.opacity = '0';
+      el.style.transform = 'scaleY(0.9)';
+    });
+
+    setTimeout(() => {
+      mergedEls.forEach(el => el.remove());
+      mergedEls = [];
+      individualEls.forEach(el => {
+        el.classList.remove('hidden-block', 'fading-out');
+        el.style.opacity = '0';
+        el.style.transform = 'scaleY(0.9)';
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            el.style.transition = 'opacity 0.28s ease, transform 0.28s ease';
+            el.style.opacity = '1';
+            el.style.transform = 'scaleY(1)';
+          });
+        });
+      });
+    }, 320);
+  }
+}
+
+// ---------- Chips rendering ----------
+
+function renderChips() {
+  const container = document.getElementById('chips-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  // Reset activePeople to just "you" initially, then re-add based on current state
+  // Keep existing activePeople state if it has been modified
+  if (!activePeople.has('you')) activePeople.add('you');
+
+  // "You" chip
+  const youChip = document.createElement('div');
+  youChip.className = 'chip you' + (activePeople.has('you') ? ' active' : '');
+  youChip.dataset.person = 'you';
+  youChip.innerHTML = `<span class="dot"></span><span class="chip-label">You</span>`;
+  youChip.onclick = () => toggleChip(youChip, 'you');
+  container.appendChild(youChip);
+
+  // Friend chips
+  comparisonSchedules.forEach((comp, idx) => {
+    const cls = FRIEND_CLASSES[idx] || `f${idx + 1}`;
+    const chip = document.createElement('div');
+    // Auto-add to activePeople if not already tracked
+    if (!activePeople.has(cls)) activePeople.add(cls);
+    chip.className = `chip ${cls}` + (activePeople.has(cls) ? ' active' : '');
+    chip.dataset.person = cls;
+    chip.innerHTML = `<span class="dot"></span><span class="chip-label">${comp.name || 'Friend'}</span>`;
+    chip.onclick = () => toggleChip(chip, cls);
+    container.appendChild(chip);
+  });
+}
+
+function toggleChip(chip, person) {
+  chip.classList.toggle('active');
+  if (chip.classList.contains('active')) {
+    activePeople.add(person);
+  } else {
+    activePeople.delete(person);
+  }
+
+  // Sync the corresponding fr-check in friends list
+  const frCheck = document.querySelector(`.fr-check[data-cls="${person}"]`);
+  if (frCheck) frCheck.classList.toggle('on', chip.classList.contains('active'));
+
+  if (mergedMode) {
+    mergedEls.forEach(el => el.remove());
+    mergedEls = [];
+    buildMergedBlocks();
+    mergedEls.forEach(el => {
+      requestAnimationFrame(() => {
+        el.classList.remove('fading-in');
+        el.style.opacity = '1';
+        el.style.transform = 'scaleY(1)';
+      });
+    });
+  } else {
+    buildIndividualBlocks();
+  }
+  if (freeMode) buildFreeBlocks();
+}
+
+// ---------- Friends list rendering ----------
+
+function renderFriendsList() {
+  const list = document.getElementById('friends-list');
+  const countEl = document.getElementById('friends-count');
+  const badgeEl = document.getElementById('friends-count-badge');
+  if (!list) return;
+  list.innerHTML = '';
+
+  const count = comparisonSchedules.length;
+  if (countEl) countEl.textContent = count;
+  if (badgeEl) badgeEl.textContent = count;
+
+  comparisonSchedules.forEach((comp, idx) => {
+    const color = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+    const initials = (comp.name || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+    const cls = FRIEND_CLASSES[idx] || `f${idx + 1}`;
+    const isActive = activePeople.has(cls);
+
+    const row = document.createElement('div');
+    row.className = 'fr-item';
+    row.innerHTML = `
+      <div class="fr-av ${color}">${initials}</div>
+      <div class="fr-name">${comp.name || 'Friend'}</div>
+      <div class="fr-code">${comp.sourceUserKey || ''}</div>
+      <div class="fr-check ${isActive ? 'on' : ''}" data-cls="${cls}"></div>
+    `;
+    row.querySelector('.fr-check').onclick = function () {
+      this.classList.toggle('on');
+      const chip = document.querySelector(`.chip[data-person="${cls}"]`);
+      if (chip) chip.click();
+    };
+    list.appendChild(row);
+  });
+}
+
+// ---------- Your blocks list rendering ----------
+
+function renderYourBlocks() {
+  const list = document.getElementById('your-blocks-list');
+  const countEl = document.getElementById('your-blocks-count');
+  if (!list) return;
+  list.innerHTML = '';
+  if (countEl) countEl.textContent = aBusy.length;
+
+  // Sort by day then time
+  const sorted = [...aBusy].sort((a, b) => {
+    const di = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
+    if (di !== 0) return di;
+    return a.start.localeCompare(b.start);
+  });
+
+  sorted.forEach(b => {
+    const row = document.createElement('div');
+    row.className = 'my-block-row';
+    row.innerHTML = `
+      <span class="mb-day">${b.day.slice(0, 3).toUpperCase()}</span>
+      <span class="mb-name">Busy Block</span>
+      <span class="mb-time">${to12Hour(b.start)}</span>
+    `;
+    list.appendChild(row);
+  });
+}
+
+// ---------- Full re-render ----------
+
+function renderAll() {
+  buildGridStructure();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    renderChips();
+    buildIndividualBlocks();
+    renderFriendsList();
+    renderYourBlocks();
+    if (freeMode) buildFreeBlocks();
+  }));
+}
+
+// ---------- Comparison name modal ----------
 
 function closeComparisonNameModal(result) {
   const modal = document.getElementById("comparison-name-modal");
@@ -208,6 +667,8 @@ function fillTimePicker(prefix, defaults) {
   const mSel = document.getElementById(`${prefix}-m`);
   const apSel = document.getElementById(`${prefix}-ap`);
 
+  if (!hSel || !mSel || !apSel) return;
+
   hSel.innerHTML = "";
   for (let h = 1; h <= 12; h++) {
     const opt = document.createElement("option");
@@ -248,10 +709,10 @@ function pickerValueToHHMM(prefix) {
   return toHHMM(hour24, m);
 }
 
-fillTimePicker("a-start", { h: 9,  m: 0,  ap: "AM" });
-fillTimePicker("a-end",   { h: 10, m: 0,  ap: "AM" });
-fillTimePicker("b-start", { h: 9,  m: 30, ap: "AM" });
-fillTimePicker("b-end",   { h: 10, m: 30, ap: "AM" });
+fillTimePicker("a-start", { h: 9, m: 0, ap: "AM" });
+fillTimePicker("a-end", { h: 10, m: 0, ap: "AM" });
+fillTimePicker("b-start", { h: 9, m: 30, ap: "AM" });
+fillTimePicker("b-end", { h: 10, m: 30, ap: "AM" });
 
 // ---------- Busy list UI ----------
 function addBusy(prefix, arr, listId, onChange) {
@@ -261,6 +722,7 @@ function addBusy(prefix, arr, listId, onChange) {
   }
 
   const dayContainer = document.getElementById(`${prefix}-days`);
+  if (!dayContainer) return;
   const selectedDays = Array.from(dayContainer.querySelectorAll("input[type='checkbox']:checked"))
     .map((cb) => cb.value);
 
@@ -287,6 +749,7 @@ function addBusy(prefix, arr, listId, onChange) {
 
 function renderBusyList(arr, listId, onChange) {
   const ul = document.getElementById(listId);
+  if (!ul) return;
   ul.innerHTML = "";
   if (!arr.length) {
     const empty = document.createElement("li");
@@ -419,15 +882,28 @@ function updateUserInfoBar() {
   const nameEl = document.getElementById("user-display-name");
   const codeEl = document.getElementById("user-friend-code");
   const myCodeEl = document.getElementById("my-friend-code");
-  if (!infoBar) return;
+
+  // New Concept C UI elements
+  const friendCodeDisplay = document.getElementById("friend-code-display");
+  const userAvatar = document.getElementById("user-avatar");
 
   if (currentUser) {
-    infoBar.classList.remove("hidden");
+    if (infoBar) infoBar.classList.remove("hidden");
     if (nameEl) nameEl.textContent = currentUser.displayName;
     if (codeEl) codeEl.textContent = currentUser.friendCode;
     if (myCodeEl) myCodeEl.textContent = currentUser.friendCode;
+
+    // Update new UI
+    if (friendCodeDisplay) friendCodeDisplay.textContent = currentUser.friendCode || '------';
+    if (userAvatar) {
+      const initials = (currentUser.displayName || currentUser.username || '?')
+        .split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+      userAvatar.textContent = initials;
+    }
   } else {
-    infoBar.classList.add("hidden");
+    if (infoBar) infoBar.classList.add("hidden");
+    if (friendCodeDisplay) friendCodeDisplay.textContent = '------';
+    if (userAvatar) userAvatar.textContent = '?';
   }
 }
 
@@ -560,6 +1036,7 @@ async function signOut() {
   renderBusyList(bBusy, "b-list", markComparisonDirty);
   renderComparisonSelect();
   clearDaySelections();
+  renderAll();
 
   // Clear form fields and reset to Sign In tab
   const fields = ["auth-signin-username", "auth-signin-password", "auth-signup-username", "auth-signup-display", "auth-signup-password", "auth-signup-confirm"];
@@ -668,6 +1145,7 @@ function initAuth() {
 function applyTheme(theme) {
   const isDark = theme === "dark";
   document.body.classList.toggle("dark-mode", isDark);
+  document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
 
   const toggleBtn = document.getElementById("theme-toggle");
   if (!toggleBtn) return;
@@ -676,6 +1154,14 @@ function applyTheme(theme) {
   const textEl = toggleBtn.querySelector(".theme-toggle-text");
   if (iconEl) iconEl.textContent = isDark ? "☀️" : "🌙";
   if (textEl) textEl.textContent = isDark ? "Light Mode" : "Dark Mode";
+
+  // Update new theme icon SVG if present
+  const svgIcon = document.getElementById("theme-icon");
+  if (svgIcon) {
+    svgIcon.innerHTML = isDark
+      ? `<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>`
+      : `<path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>`;
+  }
 }
 
 function readThemeFromCookie() {
@@ -733,9 +1219,6 @@ function initThemeToggle() {
     const nextTheme = document.body.classList.contains("dark-mode") ? "light" : "dark";
     document.body.classList.add("theme-animating");
     applyTheme(nextTheme);
-    if (lastOverlapFreeData) {
-      renderWeeklyView(lastOverlapFreeData);
-    }
     persistThemePreference(nextTheme);
 
     setTimeout(() => {
@@ -803,6 +1286,7 @@ function persistUserKey(key) {
 
 function initUserKeyInput() {
   const input = document.getElementById("schedule-key");
+  if (!input) return;
   const stored = readStoredUserKey();
   if (stored) input.value = stored;
   comparisonContextKey = getProfileKey() || null;
@@ -813,7 +1297,7 @@ function initUserKeyInput() {
     const comparisonHasData =
       bBusy.length > 0 ||
       comparisonSchedules.length > 0 ||
-      document.getElementById("comparison-name").value.trim().length > 0;
+      (document.getElementById("comparison-name")?.value.trim().length > 0);
 
     if (comparisonContextKey && key !== comparisonContextKey && comparisonHasData) {
       resetComparisonContext();
@@ -863,18 +1347,21 @@ function initWorkspaceGate() {
 
 function setPersistStatus(msg, isError = false) {
   const el = document.getElementById("persist-status");
+  if (!el) return;
   el.textContent = msg;
   el.className = isError ? "persist-error" : "muted";
 }
 
 function setImportStatus(msg, isError = false) {
   const el = document.getElementById("import-status");
+  if (!el) return;
   el.textContent = msg;
   el.className = isError ? "persist-error" : "muted";
 }
 
 function setComparisonStatus(msg, isError = false) {
   const el = document.getElementById("comparison-status");
+  if (!el) return;
   el.textContent = msg;
   el.className = isError ? "persist-error" : "muted";
 }
@@ -886,7 +1373,8 @@ function resetComparisonContext() {
 
   renderBusyList(bBusy, "b-list", markComparisonDirty);
   renderComparisonSelect();
-  document.getElementById("comparison-name").value = "";
+  const compName = document.getElementById("comparison-name");
+  if (compName) compName.value = "";
   setComparisonStatus("No saved comparison selected.");
 }
 
@@ -899,6 +1387,8 @@ function renderComparisonSelect() {
   const nameInput = document.getElementById("comparison-name");
   const deleteBtn = document.getElementById("delete-comparison");
 
+  if (!select) return;
+
   select.innerHTML = "";
 
   if (comparisonSchedules.length === 0) {
@@ -907,7 +1397,7 @@ function renderComparisonSelect() {
     opt.textContent = "No saved comparison schedules";
     select.appendChild(opt);
     selectedComparisonId = null;
-    nameInput.value = "";
+    if (nameInput) nameInput.value = "";
     if (deleteBtn) deleteBtn.disabled = true;
     setComparisonStatus("No saved comparison selected.");
     return;
@@ -931,7 +1421,7 @@ function renderComparisonSelect() {
 
   select.value = selectedComparisonId || "";
   const selected = getSelectedComparison();
-  nameInput.value = selected ? selected.name : "";
+  if (nameInput) nameInput.value = selected ? selected.name : "";
   if (deleteBtn) deleteBtn.disabled = comparisonSchedules.length === 0;
 }
 
@@ -949,7 +1439,8 @@ function loadSelectedComparisonIntoEditor() {
   comparisonDraftSourceUserKey = selected.sourceUserKey || null;
   replaceBusy(bBusy, selected.busy || []);
   renderBusyList(bBusy, "b-list", markComparisonDirty);
-  document.getElementById("comparison-name").value = selected.name || "";
+  const compName = document.getElementById("comparison-name");
+  if (compName) compName.value = selected.name || "";
   setComparisonStatus(`Loaded "${selected.name}" into editor.`);
 }
 
@@ -966,7 +1457,7 @@ function markComparisonDirty() {
 function saveComparisonFromEditor(options = {}) {
   const { silent = false, allowCreate = true } = options;
   const nameInput = document.getElementById("comparison-name");
-  const rawName = nameInput.value.trim();
+  const rawName = nameInput ? nameInput.value.trim() : "";
   const name = rawName;
 
   if (!name) {
@@ -996,8 +1487,9 @@ function saveComparisonFromEditor(options = {}) {
   comparisonDraftSourceUserKey = selected ? (selected.sourceUserKey || null) : null;
 
   renderComparisonSelect();
-  if (selectedComparisonId) {
-    document.getElementById("comparison-select").value = selectedComparisonId;
+  const compSelect = document.getElementById("comparison-select");
+  if (selectedComparisonId && compSelect) {
+    compSelect.value = selectedComparisonId;
   }
 
   if (!silent && selected) {
@@ -1052,9 +1544,11 @@ async function deleteSelectedComparison() {
 
   replaceBusy(bBusy, []);
   renderBusyList(bBusy, "b-list", markComparisonDirty);
-  document.getElementById("comparison-name").value = "";
+  const compName = document.getElementById("comparison-name");
+  if (compName) compName.value = "";
   renderComparisonSelect();
   setComparisonStatus(`Deleted "${selected.name}".`);
+  renderAll();
 
   const key = getProfileKey();
   if (!key) {
@@ -1127,7 +1621,8 @@ async function createNewSchedule(preferredUserKey = "") {
       return;
     }
 
-    document.getElementById("schedule-key").value = key;
+    const skEl = document.getElementById("schedule-key");
+    if (skEl) skEl.value = key;
     persistUserKey(key);
     activeProfileKey = key;
     comparisonContextKey = key;
@@ -1141,7 +1636,8 @@ async function createNewSchedule(preferredUserKey = "") {
 }
 
 function maybeSaveDraftIntoComparisons() {
-  const hasName = document.getElementById("comparison-name").value.trim().length > 0;
+  const compName = document.getElementById("comparison-name");
+  const hasName = compName ? compName.value.trim().length > 0 : false;
   if (selectedComparisonId) {
     saveComparisonFromEditor({ silent: true, allowCreate: true });
     return;
@@ -1168,7 +1664,6 @@ async function loadProfile() {
     const data = await res.json();
 
     if (!data.ok) {
-      // Profile doesn't exist yet — that's ok for new accounts
       if (res.status === 401) {
         setPersistStatus("Session expired. Please sign in again.", true);
         showAuthModal();
@@ -1178,6 +1673,7 @@ async function loadProfile() {
       comparisonContextKey = key;
       syncActiveUserDisplay();
       setPersistStatus("New account — add busy blocks and save.");
+      renderAll();
       return;
     }
 
@@ -1197,6 +1693,9 @@ async function loadProfile() {
       ? `Schedule loaded (updated ${new Date(data.updatedAt).toLocaleString()}).`
       : "Schedule loaded.";
     setPersistStatus(when);
+
+    // Refresh Concept C grid with loaded data
+    renderAll();
   } catch (err) {
     activeProfileKey = null;
     syncActiveUserDisplay();
@@ -1230,7 +1729,8 @@ async function saveProfile(options = {}) {
     return false;
   }
 
-  const draftName = document.getElementById("comparison-name").value.trim();
+  const compName = document.getElementById("comparison-name");
+  const draftName = compName ? compName.value.trim() : "";
   if (!selectedComparisonId && bBusy.length > 0 && !draftName) {
     setPersistStatus("Name the imported comparison and click Save Comparison before updating.", true);
     return false;
@@ -1351,260 +1851,28 @@ async function importFriendSchedule() {
     setImportStatus(`Imported "${friendLabel}" as "${created.name}".`);
     if (codeInput) codeInput.value = "";
     await saveProfile({ silent: true });
+    renderAll();
   } catch (err) {
     setImportStatus(`Import error: ${String(err)}`, true);
   }
 }
 
-// ---------- Weekly calendar rendering ----------
-function to12HourLabel(totalMin) {
-  let h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  const ampm = h >= 12 ? "PM" : "AM";
-  h = h % 12;
-  if (h === 0) h = 12;
-  return `${h}${m ? ":" + String(m).padStart(2, "0") : ""} ${ampm}`;
-}
-
-function buildCalendarHTML() {
-  const totalSlots = ((END_HOUR - START_HOUR) * 60) / SLOT_MIN;
-
-  const dayHeaders = DAYS.map((d) => `<div class="day-header">${d}</div>`).join("");
-
-  const timeRows = [];
-  for (let mins = START_HOUR * 60; mins < END_HOUR * 60; mins += SLOT_MIN) {
-    const rowStart = 2 + ((mins - START_HOUR * 60) / SLOT_MIN);
-    timeRows.push(`<div class="time-label minor-mark" style="grid-row:${rowStart};"></div>`);
+// ---------- Import friend by code (new Concept C flow) ----------
+async function importFriendByCode(friendCode) {
+  try {
+    const res = await fetch(`/api/friend/${encodeURIComponent(friendCode)}`);
+    const data = await res.json();
+    if (!data.ok) { alert(data.error || 'Friend not found'); return; }
+    const name = data.displayName || data.username || friendCode;
+    createComparisonSchedule({ name, busy: data.busy || [], sourceUserKey: friendCode });
+    await saveProfile({ silent: true });
+    renderAll();
+  } catch (e) {
+    alert('Error adding friend: ' + e);
   }
-
-  const hourLabels = [];
-  for (let h = START_HOUR; h < END_HOUR; h++) {
-    const rowStart = 2 + ((h - START_HOUR) * (60 / SLOT_MIN));
-    hourLabels.push(`
-      <div class="time-label hour-mark" style="grid-row:${rowStart} / span ${60 / SLOT_MIN};">
-        ${to12HourLabel(h * 60)}
-      </div>
-    `);
-  }
-
-  const cells = [];
-  const rows = totalSlots;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < DAYS.length; c++) {
-      cells.push(`<div class="cell" style="grid-row:${r + 2}; grid-column:${c + 2};"></div>`);
-    }
-  }
-
-  return `
-    <div class="calendar">
-      <div id="best-open-slots" class="best-open-slots"></div>
-      <div class="calendar-grid" style="--rows:${totalSlots}; --cols:${DAYS.length};">
-        <div class="corner"></div>
-        ${dayHeaders}
-        ${timeRows.join("")}
-        ${hourLabels.join("")}
-        ${cells.join("")}
-        <div id="events-layer" class="events-layer"></div>
-      </div>
-    </div>
-  `;
 }
 
-function parseEventInt(value, fallback) {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function collectEventLayoutState(layer) {
-  const layerRect = layer.getBoundingClientRect();
-  const entries = [];
-
-  layer.querySelectorAll(".event").forEach((el, idx) => {
-    const rect = el.getBoundingClientRect();
-    entries.push({
-      key: el.dataset.eventKey || `event-${idx}`,
-      kind: el.dataset.kind || "",
-      day: el.dataset.day || "",
-      startMin: parseEventInt(el.dataset.startMin, 0),
-      endMin: parseEventInt(el.dataset.endMin, 0),
-      left: rect.left - layerRect.left,
-      top: rect.top - layerRect.top,
-      width: rect.width,
-      height: rect.height,
-    });
-  });
-
-  const byKey = new Map();
-  entries.forEach((entry) => {
-    if (!byKey.has(entry.key)) byKey.set(entry.key, entry);
-  });
-
-  return { entries, byKey };
-}
-
-function overlapMinutes(aStart, aEnd, bStart, bEnd) {
-  return Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
-}
-
-function unionRect(entries) {
-  if (!entries.length) return null;
-  const left = Math.min(...entries.map((e) => e.left));
-  const top = Math.min(...entries.map((e) => e.top));
-  const right = Math.max(...entries.map((e) => e.left + e.width));
-  const bottom = Math.max(...entries.map((e) => e.top + e.height));
-  return {
-    left,
-    top,
-    width: Math.max(1, right - left),
-    height: Math.max(1, bottom - top),
-  };
-}
-
-function bestSourceRectForBusy(nextEntry, previousEntries) {
-  const candidates = previousEntries.filter((prev) => {
-    if (!prev.kind.startsWith("busy")) return false;
-    if (prev.day !== nextEntry.day) return false;
-    return overlapMinutes(prev.startMin, prev.endMin, nextEntry.startMin, nextEntry.endMin) > 0;
-  });
-
-  if (!candidates.length) return null;
-
-  if (nextEntry.kind === "busy-merged" && candidates.length > 1) {
-    return unionRect(candidates);
-  }
-
-  let best = candidates[0];
-  let bestOverlap = overlapMinutes(best.startMin, best.endMin, nextEntry.startMin, nextEntry.endMin);
-  for (let i = 1; i < candidates.length; i++) {
-    const c = candidates[i];
-    const overlap = overlapMinutes(c.startMin, c.endMin, nextEntry.startMin, nextEntry.endMin);
-    if (overlap > bestOverlap) {
-      best = c;
-      bestOverlap = overlap;
-    }
-  }
-
-  return {
-    left: best.left,
-    top: best.top,
-    width: Math.max(1, best.width),
-    height: Math.max(1, best.height),
-  };
-}
-
-function animateEventLayerTransition(layer, previousState) {
-  if (!layer || !previousState) return;
-  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-  const layerRect = layer.getBoundingClientRect();
-  const nextEntries = [];
-  layer.querySelectorAll(".event").forEach((el, idx) => {
-    const rect = el.getBoundingClientRect();
-    nextEntries.push({
-      element: el,
-      key: el.dataset.eventKey || `next-${idx}`,
-      kind: el.dataset.kind || "",
-      day: el.dataset.day || "",
-      startMin: parseEventInt(el.dataset.startMin, 0),
-      endMin: parseEventInt(el.dataset.endMin, 0),
-      left: rect.left - layerRect.left,
-      top: rect.top - layerRect.top,
-      width: rect.width,
-      height: rect.height,
-    });
-  });
-
-  nextEntries.forEach((entry) => {
-    let source = previousState.byKey.get(entry.key) || null;
-    if (!source && entry.kind.startsWith("busy")) {
-      source = bestSourceRectForBusy(entry, previousState.entries);
-    }
-
-    const el = entry.element;
-    if (typeof el.animate !== "function") return;
-
-    if (source) {
-      const dx = source.left - entry.left;
-      const dy = source.top - entry.top;
-      const sx = source.width / Math.max(1, entry.width);
-      const sy = source.height / Math.max(1, entry.height);
-
-      el.animate(
-        [
-          {
-            transformOrigin: "top left",
-            transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`,
-            opacity: 0.76,
-          },
-          {
-            transformOrigin: "top left",
-            transform: "translate(0, 0) scale(1, 1)",
-            opacity: 1,
-          },
-        ],
-        {
-          duration: 345,
-          easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
-          fill: "both",
-        }
-      );
-      return;
-    }
-
-    el.animate(
-      [
-        { opacity: 0, transform: "translateY(3px) scale(0.985)" },
-        { opacity: 1, transform: "translateY(0) scale(1)" },
-      ],
-      {
-        duration: 245,
-        easing: "ease-out",
-        fill: "both",
-      }
-    );
-  });
-}
-
-function placeBlocks(blocks, className) {
-  const container = document.getElementById("events-layer");
-  const dayStartMin = START_HOUR * 60;
-  const dayEndMin = END_HOUR * 60;
-
-  blocks.forEach((b) => {
-    if (!DAYS.includes(b.day)) return;
-
-    const s = clamp(toMinutes(b.start), dayStartMin, dayEndMin);
-    const e = clamp(toMinutes(b.end), dayStartMin, dayEndMin);
-    if (e <= s) return;
-
-    const dayIndex = DAYS.indexOf(b.day);
-
-    const startSlot = Math.floor((s - dayStartMin) / SLOT_MIN);
-    const endSlot = Math.ceil((e - dayStartMin) / SLOT_MIN);
-    const rowStart = startSlot + 2;
-    const rowEnd = endSlot + 2;
-
-    const colStart = dayIndex + 2;
-    const colEnd = colStart + 1;
-
-    const el = document.createElement("div");
-    el.className = `event ${className}`;
-    el.style.gridRow = `${rowStart} / ${rowEnd}`;
-    el.style.gridColumn = `${colStart} / ${colEnd}`;
-    el.dataset.eventKey = b.key ? `${className}|${b.key}` : `${className}|${b.day}|${b.start}|${b.end}`;
-    el.dataset.kind = className;
-    el.dataset.day = b.day;
-    el.dataset.startMin = String(s);
-    el.dataset.endMin = String(e);
-    if (b.color) el.style.background = b.color;
-    if (b.border) el.style.borderColor = b.border;
-    el.title = `${b.day} ${formatRange12(b.start, b.end)}`;
-    const label = b.label || "Busy Block";
-    el.innerHTML = `<div class="event-label">${label}<br>${formatRange12(b.start, b.end)}</div>`;
-    container.appendChild(el);
-  });
-}
-
+// ---------- Merge intervals utility (legacy, kept for compat) ----------
 function mergeIntervals(intervals) {
   if (!intervals.length) return [];
   const sorted = [...intervals].sort((a, b) => a.start - b.start);
@@ -1622,469 +1890,103 @@ function mergeIntervals(intervals) {
   return merged;
 }
 
-function invertBusyToFree(mergedBusy, dayStartMin, dayEndMin) {
-  const free = [];
-  let cur = dayStartMin;
+// ---------- Compare (legacy, updated to call renderAll) ----------
+const compareBtn = document.getElementById("compare");
+if (compareBtn) {
+  compareBtn.onclick = async () => {
+    const selected = getSelectedComparison();
+    const comparisonName = (document.getElementById("comparison-name")?.value.trim() || selected?.name || "Comparison Schedule");
+    const compareStatus = document.getElementById("comparison-status-global");
+    if (compareStatus) compareStatus.textContent = "Comparing schedules...";
 
-  for (const block of mergedBusy) {
-    const s = Math.max(block.start, dayStartMin);
-    const e = Math.min(block.end, dayEndMin);
-    if (e <= dayStartMin || s >= dayEndMin) continue;
-    if (cur < s) free.push({ start: cur, end: s });
-    cur = Math.max(cur, e);
-  }
-
-  if (cur < dayEndMin) free.push({ start: cur, end: dayEndMin });
-  return free;
-}
-
-function getOpenTimeForSelection(showA, showB, sharedOverlapFree) {
-  if (showA && showB) return sharedOverlapFree;
-
-  const dayStartMin = START_HOUR * 60;
-  const dayEndMin = END_HOUR * 60;
-  const open = Object.fromEntries(DAYS.map((d) => [d, []]));
-  let selectedBusy = [];
-
-  if (showA) selectedBusy = aBusy;
-  else if (showB) selectedBusy = bBusy;
-
-  if (!showA && !showB) {
-    for (const day of DAYS) {
-      open[day] = [{ start: minutesToHHMM(dayStartMin), end: minutesToHHMM(dayEndMin) }];
-    }
-    return open;
-  }
-
-  for (const day of DAYS) {
-    const mergedBusy = mergeIntervals(
-      selectedBusy
-        .filter((b) => b.day === day)
-        .map((b) => ({ start: toMinutes(b.start), end: toMinutes(b.end) }))
-        .filter((b) => b.end > b.start)
-    );
-
-    const freeSlots = invertBusyToFree(mergedBusy, dayStartMin, dayEndMin);
-    open[day] = freeSlots.map((slot) => ({
-      start: minutesToHHMM(slot.start),
-      end: minutesToHHMM(slot.end),
-    }));
-  }
-
-  return open;
-}
-
-function formatDuration(mins) {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h && m) return `${h}h ${m}m`;
-  if (h) return `${h}h`;
-  return `${m}m`;
-}
-
-function getTopOpenSlots(openByDay, limit = 3, allowedDays = DAYS) {
-  const daySet = new Set(allowedDays);
-  const slots = [];
-
-  for (const day of DAYS) {
-    if (!daySet.has(day)) continue;
-    const daySlots = openByDay[day] || [];
-    daySlots.forEach((slot) => {
-      const startMin = toMinutes(slot.start);
-      const endMin = toMinutes(slot.end);
-      if (endMin <= startMin) return;
-      slots.push({
-        day,
-        start: slot.start,
-        end: slot.end,
-        durationMin: endMin - startMin,
-      });
-    });
-  }
-
-  slots.sort((a, b) => {
-    if (b.durationMin !== a.durationMin) return b.durationMin - a.durationMin;
-    const dayDelta = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
-    if (dayDelta !== 0) return dayDelta;
-    return a.start.localeCompare(b.start);
-  });
-
-  return slots.slice(0, limit);
-}
-
-function renderBestOpenSlots(openByDay, showA, showB) {
-  const container = document.getElementById("best-open-slots");
-  if (!container) return;
-
-  const weekdayDays = DAYS.filter((day) => day !== "Sat" && day !== "Sun");
-  let allowedDays = weekdayDays;
-
-  const mode = showA && showB
-    ? "Shared availability (weekdays)"
-    : showA
-      ? "My Schedule availability (weekdays)"
-      : showB
-        ? "Comparison Schedule availability (weekdays)"
-        : "No busy filters selected";
-
-  if (!showA && !showB) {
-    container.innerHTML = `
-      <div class="slots-head">
-        <h3>Best Open Slots</h3>
-        <span class="slots-mode">${mode}</span>
-      </div>
-      <div class="slots-empty muted">Enable My Schedule and/or Comparison Schedule to see ranked open slots.</div>
-    `;
-    return;
-  }
-
-  if (showA && showB) {
-    allowedDays = weekdayDays.filter(
-      (day) =>
-        aBusy.some((b) => b.day === day) &&
-        bBusy.some((b) => b.day === day)
-    );
-  }
-
-  const modeText = showA && showB
-    ? allowedDays.length
-      ? `Shared campus days: ${allowedDays.join(", ")}`
-      : "No shared campus weekdays detected"
-    : mode;
-
-  const topSlots = getTopOpenSlots(openByDay, 3, allowedDays);
-  const cards = topSlots.length
-    ? topSlots.map((slot, idx) => `
-      <article class="slot-card">
-        <div class="slot-rank">#${idx + 1}</div>
-        <div class="slot-day">${slot.day}</div>
-        <div class="slot-range">${formatRange12(slot.start, slot.end)}</div>
-        <div class="slot-duration">${formatDuration(slot.durationMin)}</div>
-      </article>
-    `).join("")
-    : `<div class="slots-empty muted">${
-        showA && showB
-          ? "No weekday open slots found where both users appear on campus."
-          : "No weekday open slots found in the selected time window."
-      }</div>`;
-
-  container.innerHTML = `
-    <div class="slots-head">
-      <h3>Best Open Slots</h3>
-      <span class="slots-mode">${modeText}</span>
-    </div>
-    <div class="slots-grid">${cards}</div>
-  `;
-}
-
-function getMergedBusyBlocks(aBlocks, bBlocks) {
-  const byDay = Object.fromEntries(DAYS.map((d) => [d, []]));
-  const combined = [...aBlocks, ...bBlocks];
-
-  combined.forEach((b) => {
-    if (!DAYS.includes(b.day)) return;
-    const startMin = toMinutes(b.start);
-    const endMin = toMinutes(b.end);
-    if (endMin <= startMin) return;
-    byDay[b.day].push({ start: startMin, end: endMin });
-  });
-
-  const mergedBlocks = [];
-  for (const day of DAYS) {
-    const merged = mergeIntervals(byDay[day]);
-    merged.forEach((m) => {
-      mergedBlocks.push({
-        day,
-        start: minutesToHHMM(m.start),
-        end: minutesToHHMM(m.end),
-        key: `busy-merged|${day}|${minutesToHHMM(m.start)}|${minutesToHHMM(m.end)}`,
-      });
-    });
-  }
-  return mergedBlocks;
-}
-
-function buildGroupedBusyBlocks(blocks) {
-  const groupByTime = new Map();
-  let nextId = 1;
-  const paletteSet = getBusyPalette();
-
-  return blocks.map((b) => {
-    const key = `${b.start}|${b.end}`;
-    if (!groupByTime.has(key)) {
-      groupByTime.set(key, nextId++);
-    }
-    const id = groupByTime.get(key);
-    const palette = paletteSet[(id - 1) % paletteSet.length];
-    return {
-      ...b,
-      label: `Busy Block ${id}`,
-      color: palette.fill,
-      border: palette.border,
-      key: `busy-${id}|${b.day}|${b.start}|${b.end}`,
-    };
-  });
-}
-
-function placeOverlap(overlapFree) {
-  const container = document.getElementById("events-layer");
-  const dayStartMin = START_HOUR * 60;
-  const dayEndMin = END_HOUR * 60;
-
-  for (const day of DAYS) {
-    const slots = overlapFree[day] || [];
-    for (const slot of slots) {
-      const b = { day, start: slot.start, end: slot.end };
-
-      const sMin = clamp(toMinutes(b.start), dayStartMin, dayEndMin);
-      const eMin = clamp(toMinutes(b.end), dayStartMin, dayEndMin);
-      if (eMin <= sMin) continue;
-      const durationMin = eMin - sMin;
-
-      const dayIndex = DAYS.indexOf(day);
-
-      const startSlot = Math.floor((sMin - dayStartMin) / SLOT_MIN);
-      const endSlot = Math.ceil((eMin - dayStartMin) / SLOT_MIN);
-      const rowStart = startSlot + 2;
-      const rowEnd = endSlot + 2;
-
-      const colStart = dayIndex + 2;
-      const colEnd = colStart + 1;
-
-      const el = document.createElement("div");
-      const tailToEnd = eMin === dayEndMin && durationMin >= 90;
-      const headFromStart = sMin === dayStartMin;
-      const showRange = durationMin >= 55 && !tailToEnd;
-      const isTiny = durationMin <= 15;
-      const isCompact = !showRange && !isTiny;
-      const isMiddleGap = sMin > dayStartMin && eMin < dayEndMin;
-      const isAnimatedMid = showRange && isMiddleGap;
-      const pillText = tailToEnd ? "Open rest of day" : (durationMin < 40 ? "Open" : "Open-time");
-      el.className = `event overlap ${isCompact ? "compact-open-slot" : ""} ${isTiny ? "tiny-open-slot" : ""} ${tailToEnd ? "open-tail-slot" : ""} ${headFromStart ? "open-head-slot" : ""} ${isAnimatedMid ? "open-mid-slot" : ""}`.trim();
-      el.style.gridRow = `${rowStart} / ${rowEnd}`;
-      el.style.gridColumn = `${colStart} / ${colEnd}`;
-      el.dataset.eventKey = `open|${day}|${slot.start}|${slot.end}`;
-      el.dataset.kind = "open-time";
-      el.dataset.day = day;
-      el.dataset.startMin = String(sMin);
-      el.dataset.endMin = String(eMin);
-      if (!isTiny) {
-        el.title = `Open-time: ${formatRange12(slot.start, slot.end)}`;
-      }
-
-      el.innerHTML = `
-        <div class="event-label open-time-label ${isTiny ? "tiny-open-time" : ""} ${showRange ? "" : "compact-open-time"}">
-          <span class="open-time-pill ${showRange || tailToEnd ? "" : "short-open-pill"}">${pillText}</span>
-          ${isTiny ? "" : `<span class="open-time-range ${showRange ? "" : "hover-only-range"}">${formatRange12(slot.start, slot.end)}</span>`}
-        </div>
-      `;
-
-      container.appendChild(el);
-    }
-  }
-}
-
-function enableBusyBlockMicroDrag() {
-  const layer = document.getElementById("events-layer");
-  if (!layer) return;
-
-  const maxDragPx = 10;
-  const busyEvents = layer.querySelectorAll(".event.busy-a, .event.busy-b, .event.busy-merged");
-
-  busyEvents.forEach((el) => {
-    let dragging = false;
-    let pointerId = null;
-    let startX = 0;
-    let startY = 0;
-
-    const onMove = (evt) => {
-      if (!dragging || evt.pointerId !== pointerId) return;
-      const dx = clamp(evt.clientX - startX, -maxDragPx, maxDragPx);
-      const dy = clamp(evt.clientY - startY, -maxDragPx, maxDragPx);
-      el.style.translate = `${dx}px ${dy}px`;
-    };
-
-    const finish = (evt) => {
-      if (!dragging) return;
-      if (evt && pointerId !== null && evt.pointerId !== pointerId) return;
-
-      dragging = false;
-      pointerId = null;
-      el.classList.remove("busy-dragging");
-      el.style.transition = "translate 180ms cubic-bezier(0.2, 0.8, 0.2, 1)";
-      el.style.translate = "0px 0px";
-
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
-      window.removeEventListener("pointerleave", finish);
-    };
-
-    el.addEventListener("pointerdown", (evt) => {
-      if (evt.button !== 0) return;
-      dragging = true;
-      pointerId = evt.pointerId;
-      startX = evt.clientX;
-      startY = evt.clientY;
-      el.classList.add("busy-dragging");
-      el.style.transition = "none";
-
-      try {
-        el.setPointerCapture(pointerId);
-      } catch (_err) {
-        // Ignore pointer capture failures.
-      }
-
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", finish);
-      window.addEventListener("pointercancel", finish);
-      window.addEventListener("pointerleave", finish);
-      evt.preventDefault();
-    });
-  });
-}
-
-function renderWeeklyView(overlapFree) {
-  const output = document.getElementById("output");
-  output.innerHTML = buildCalendarHTML();
-
-  const legend = document.createElement("div");
-  legend.className = "legend";
-  legend.innerHTML = `
-  <label class="legend-item">
-    <input type="checkbox" id="toggle-a" checked>
-    <span class="swatch busy-a"></span> My Schedule
-  </label>
-
-  <label class="legend-item">
-    <input type="checkbox" id="toggle-b" checked>
-    <span class="swatch busy-b"></span> Comparison Schedule
-  </label>
-
-  <label class="legend-item">
-    <input type="checkbox" id="toggle-overlap" checked>
-    <span class="swatch overlap"></span> Open Time
-  </label>
-`;
-  output.prepend(legend);
-
-  function draw() {
-    const showA = document.getElementById("toggle-a").checked;
-    const showB = document.getElementById("toggle-b").checked;
-    const showOverlap = document.getElementById("toggle-overlap").checked;
-    const openTime = getOpenTimeForSelection(showA, showB, overlapFree);
-
-    const layer = document.getElementById("events-layer");
-    const previousState = collectEventLayoutState(layer);
-    layer.innerHTML = "";
-
-    if (showA && showB) {
-      const mergedBusy = getMergedBusyBlocks(aBusy, bBusy);
-      placeBlocks(mergedBusy, "busy-merged");
-    } else {
-      if (showA) placeBlocks(buildGroupedBusyBlocks(aBusy), "busy-a");
-      if (showB) placeBlocks(buildGroupedBusyBlocks(bBusy), "busy-b");
+    // Update bBusy from selected comparison for legacy compat
+    if (selected) {
+      replaceBusy(bBusy, selected.busy || []);
     }
 
-    if (showOverlap) placeOverlap(openTime);
-    renderBestOpenSlots(openTime, showA, showB);
+    renderAll();
 
-    animateEventLayerTransition(layer, previousState);
-    enableBusyBlockMicroDrag();
-  }
-
-  draw();
-  document.getElementById("toggle-a").onchange = draw;
-  document.getElementById("toggle-b").onchange = draw;
-  document.getElementById("toggle-overlap").onchange = draw;
-}
-
-// ---------- Compare ----------
-document.getElementById("compare").onclick = async () => {
-  const selected = getSelectedComparison();
-  const comparisonName = (document.getElementById("comparison-name").value.trim() || selected?.name || "Comparison Schedule");
-  const compareStatus = document.getElementById("comparison-status-global");
-  if (compareStatus) compareStatus.textContent = "Comparing schedules and ranking open-time windows...";
-
-  const payload = {
-    personA: { name: "My Schedule", busy: aBusy },
-    personB: { name: comparisonName, busy: bBusy },
+    if (compareStatus) compareStatus.textContent = "Comparison updated.";
   };
-
-  const output = document.getElementById("output");
-  output.innerHTML = `<div class="muted">Comparing...</div>`;
-
-  try {
-    const res = await fetch("/compare", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-    if (!data.overlapFree) {
-      if (compareStatus) compareStatus.textContent = "Compare failed: missing open-time data from server.";
-      output.innerHTML = `<div class="error">No overlapFree returned.</div>`;
-      return;
-    }
-
-    renderWeeklyView(data.overlapFree);
-    lastOverlapFreeData = data.overlapFree;
-    if (compareStatus) compareStatus.textContent = "Comparison updated. Review top open slots and weekly view below.";
-  } catch (err) {
-    lastOverlapFreeData = null;
-    if (compareStatus) compareStatus.textContent = "Compare failed. Check backend/database connectivity and try again.";
-    output.innerHTML = `<div class="error">Error calling /compare: ${String(err)}</div>`;
-  }
-};
+}
 
 // ---------- Event wiring ----------
-document.getElementById("a-add").onclick = () => addBusy("a", aBusy, "a-list");
-document.getElementById("b-add").onclick = () => addBusy("b", bBusy, "b-list", markComparisonDirty);
+const aAddBtn = document.getElementById("a-add");
+if (aAddBtn) {
+  aAddBtn.onclick = () => {
+    addBusy("a", aBusy, "a-list");
+    renderAll();
+  };
+}
 
-document.getElementById("comparison-select").onchange = (e) => {
-  selectedComparisonId = e.target.value || null;
-  loadSelectedComparisonIntoEditor();
-};
+const bAddBtn = document.getElementById("b-add");
+if (bAddBtn) {
+  bAddBtn.onclick = () => addBusy("b", bBusy, "b-list", markComparisonDirty);
+}
 
-document.getElementById("new-comparison").onclick = async () => {
-  await startNewComparisonDraft();
-  const key = getProfileKey();
-  if (key && activeProfileKey && key === activeProfileKey) {
-    await saveProfile({ silent: true });
-  }
-};
-document.getElementById("save-comparison").onclick = async () => {
-  const saved = saveComparisonFromEditor({ silent: false, allowCreate: true });
-  if (!saved) return;
-  const key = getProfileKey();
-  if (!key) {
-    setPersistStatus("Comparison saved locally. Enter User ID and click Update Schedule to persist.");
-    return;
-  }
-  if (!activeProfileKey || key !== activeProfileKey) {
-    setPersistStatus("Comparison saved locally. Load or create this profile, then click Update Schedule to persist.");
-    return;
-  }
-  const ok = await saveProfile({ silent: true });
-  if (ok) setPersistStatus(`Saved comparison "${saved.name}" to your profile.`);
-};
+const compSelect = document.getElementById("comparison-select");
+if (compSelect) {
+  compSelect.onchange = (e) => {
+    selectedComparisonId = e.target.value || null;
+    loadSelectedComparisonIntoEditor();
+  };
+}
+
+const newComparisonBtn = document.getElementById("new-comparison");
+if (newComparisonBtn) {
+  newComparisonBtn.onclick = async () => {
+    await startNewComparisonDraft();
+    const key = getProfileKey();
+    if (key && activeProfileKey && key === activeProfileKey) {
+      await saveProfile({ silent: true });
+    }
+    renderAll();
+  };
+}
+
+const saveComparisonBtn = document.getElementById("save-comparison");
+if (saveComparisonBtn) {
+  saveComparisonBtn.onclick = async () => {
+    const saved = saveComparisonFromEditor({ silent: false, allowCreate: true });
+    if (!saved) return;
+    const key = getProfileKey();
+    if (!key) {
+      setPersistStatus("Comparison saved locally. Enter User ID and click Update Schedule to persist.");
+      return;
+    }
+    if (!activeProfileKey || key !== activeProfileKey) {
+      setPersistStatus("Comparison saved locally. Load or create this profile, then click Update Schedule to persist.");
+      return;
+    }
+    const ok = await saveProfile({ silent: true });
+    if (ok) setPersistStatus(`Saved comparison "${saved.name}" to your profile.`);
+    renderAll();
+  };
+}
+
 const deleteComparisonBtn = document.getElementById("delete-comparison");
 if (deleteComparisonBtn) {
   deleteComparisonBtn.onclick = deleteSelectedComparison;
 }
-document.getElementById("comparison-name").oninput = markComparisonDirty;
+
+const compNameInput = document.getElementById("comparison-name");
+if (compNameInput) {
+  compNameInput.oninput = markComparisonDirty;
+}
 
 const loadProfileBtn = document.getElementById("load-profile");
 if (loadProfileBtn) loadProfileBtn.onclick = async () => { await loadProfile(); };
+
 const updateProfileBtn = document.getElementById("update-profile") || document.getElementById("save-profile");
 if (updateProfileBtn) {
   updateProfileBtn.onclick = () => saveProfile({ silent: false, requireLoadedContext: false });
 }
+
 const createProfileBtn = document.getElementById("create-profile");
 if (createProfileBtn) {
   createProfileBtn.onclick = createNewSchedule;
 }
+
 const importFriendBtn = document.getElementById("import-friend");
 if (importFriendBtn) importFriendBtn.onclick = importFriendSchedule;
 
@@ -2099,7 +2001,7 @@ function initImportModal() {
 
   const cancelBtn = document.getElementById("import-modal-cancel");
   const confirmBtn = document.getElementById("import-modal-confirm");
-  const openBtn = document.getElementById("open-import-modal");
+  const closeBtn = document.getElementById("import-close-btn");
 
   // Tab switching
   modal.querySelectorAll(".import-tab").forEach((tab) => {
@@ -2112,26 +2014,22 @@ function initImportModal() {
     };
   });
 
-  // Open modal
-  if (openBtn) {
-    openBtn.onclick = () => openImportModal();
-  }
-
-  // Cancel
-  cancelBtn.onclick = () => closeImportModal();
+  // Cancel / close
+  if (cancelBtn) cancelBtn.onclick = () => closeImportModal();
+  if (closeBtn) closeBtn.onclick = () => closeImportModal();
   modal.addEventListener("click", (e) => {
     if (e.target === modal) closeImportModal();
   });
 
   // Confirm import
-  confirmBtn.onclick = () => executeImport();
+  if (confirmBtn) confirmBtn.onclick = () => executeImport();
 
   // Import target toggle
   const targetSelect = document.getElementById("import-target");
-  const compNameInput = document.getElementById("import-comparison-name");
-  if (targetSelect && compNameInput) {
+  const compNameInputModal = document.getElementById("import-comparison-name");
+  if (targetSelect && compNameInputModal) {
     targetSelect.onchange = () => {
-      compNameInput.classList.toggle("hidden", targetSelect.value !== "comparison");
+      compNameInputModal.classList.toggle("hidden", targetSelect.value !== "comparison");
     };
   }
 
@@ -2338,7 +2236,6 @@ async function parseScheduleImage() {
         if (parseBtn) parseBtn.disabled = false;
         return;
       }
-      // Found some but few — show them but warn
       if (status) {
         status.textContent =
           `OCR found only ${data.blocks.length} blocks (may be incomplete). ` +
@@ -2422,7 +2319,8 @@ async function parseScheduleText() {
 function executeImport() {
   if (!pendingImportBlocks.length) return;
 
-  const target = document.getElementById("import-target").value;
+  const targetEl = document.getElementById("import-target");
+  const target = targetEl ? targetEl.value : "my-schedule";
   const busyBlocks = pendingImportBlocks.map((b) => ({
     day: b.day,
     start: b.start,
@@ -2430,16 +2328,15 @@ function executeImport() {
   }));
 
   if (target === "my-schedule") {
-    // Replace My Schedule busy blocks
     replaceBusy(aBusy, busyBlocks);
     renderBusyList(aBusy, "a-list");
     closeImportModal();
     setPersistStatus(
       `Imported ${busyBlocks.length} blocks into My Schedule. Click "Update Schedule" to save.`
     );
+    renderAll();
   } else {
-    // Create new comparison schedule
-    let name = (document.getElementById("import-comparison-name").value || "").trim();
+    let name = (document.getElementById("import-comparison-name")?.value || "").trim();
     if (!name) name = "Imported Schedule";
 
     const created = createComparisonSchedule({
@@ -2452,6 +2349,7 @@ function executeImport() {
       closeImportModal();
       setComparisonStatus(`Imported ${busyBlocks.length} blocks as "${created.name}".`);
       setPersistStatus(`Click "Update Schedule" to save the imported comparison.`);
+      renderAll();
     }
   }
 }
@@ -2460,19 +2358,15 @@ function generateBookmarkletLink() {
   const link = document.getElementById("bookmarklet-link");
   if (!link) return;
 
-  // Build the bookmarklet URL with current origin
   const origin = window.location.origin;
-
-  // Minified bookmarklet that fetches and executes the full script
   const bookmarkletCode = `javascript:void(function(){var s=document.createElement('script');s.src='${origin}/static/bookmarklet-cpp.js?t='+Date.now();window.TIMESYNC_ORIGIN='${origin}';document.body.appendChild(s)})()`;
 
   link.href = bookmarkletCode;
 
-  // Prevent click navigation (it's meant to be dragged)
   link.addEventListener("click", (e) => {
     e.preventDefault();
     alert(
-      "Drag this button to your bookmarks bar!\\n\\n" +
+      "Drag this button to your bookmarks bar!\n\n" +
       "Then visit your CPP schedule page and click the bookmark to import your schedule."
     );
   });
@@ -2487,15 +2381,12 @@ function checkUrlForImportData() {
     try {
       const blocks = JSON.parse(decodeURIComponent(importData));
       if (Array.isArray(blocks) && blocks.length > 0) {
-        // Clean the URL
         window.history.replaceState({}, "", window.location.pathname);
 
-        // Wait for page to be ready, then open import modal with data
         setTimeout(() => {
           openImportModal();
           showImportPreview(blocks);
 
-          // Auto-switch to the paste tab and show success
           const pasteStatus = document.getElementById("paste-status");
           if (pasteStatus) {
             pasteStatus.textContent = `Schedule data received from bookmarklet! ${blocks.length} blocks found.`;
@@ -2512,7 +2403,6 @@ function checkUrlForImportData() {
     window.history.replaceState({}, "", window.location.pathname);
     setTimeout(() => {
       openImportModal();
-      // Switch to paste tab
       const pastTab = document.querySelector('.import-tab[data-tab="paste"]');
       if (pastTab) pastTab.click();
 
@@ -2525,7 +2415,69 @@ function checkUrlForImportData() {
   }
 }
 
-// Initial UI state
+// ---------- New Concept C UI wiring ----------
+
+// Friend code pill copy
+document.getElementById('friend-code-display')?.addEventListener('click', function () {
+  const code = this.textContent;
+  if (code && code !== '------') {
+    navigator.clipboard.writeText(code).catch(() => {});
+    const orig = this.textContent;
+    this.textContent = 'Copied!';
+    this.style.color = 'var(--green-neon, #4ade80)';
+    setTimeout(() => { this.textContent = orig; this.style.color = ''; }, 1400);
+  }
+});
+
+// Free time toggle
+document.getElementById('free-btn')?.addEventListener('click', toggleFreeTime);
+
+// Merge toggle
+document.getElementById('merge-btn')?.addEventListener('click', toggleMerge);
+
+// Quick actions
+document.getElementById('qa-import')?.addEventListener('click', () => {
+  openImportModal();
+});
+document.getElementById('qa-share')?.addEventListener('click', () => {
+  const code = document.getElementById('friend-code-display')?.textContent;
+  if (code && code !== '------') {
+    navigator.clipboard.writeText(code).catch(() => {});
+  }
+});
+document.getElementById('qa-add-block')?.addEventListener('click', () => {
+  // Scroll legacy add-block section into view if present
+  const addSection = document.getElementById('a-add') || document.getElementById('a-days');
+  if (addSection) addSection.scrollIntoView({ behavior: 'smooth' });
+});
+
+// Add friend by code
+document.getElementById('add-friend-btn')?.addEventListener('click', async () => {
+  const input = document.getElementById('add-friend-input');
+  if (!input) return;
+  const code = input.value.trim().toUpperCase();
+  if (code.length !== 6) {
+    alert('Friend code must be 6 characters.');
+    return;
+  }
+  await importFriendByCode(code);
+  input.value = '';
+});
+
+// Import tab in topbar opens modal
+document.getElementById('open-import-modal')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  openImportModal();
+});
+
+// Resize handler
+window.addEventListener('resize', () => {
+  buildIndividualBlocks();
+  if (mergedMode) buildMergedBlocks();
+  if (freeMode) buildFreeBlocks();
+});
+
+// ---------- Initial UI state ----------
 initThemeToggle();
 initComparisonNameModal();
 initImportModal();
@@ -2540,3 +2492,12 @@ checkUrlForImportData();
 
 // Check auth session — auto-load profile if authenticated, show auth modal if not
 checkAuth();
+
+// Initialize Concept C grid
+buildGridStructure();
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  renderChips();
+  buildIndividualBlocks();
+  renderFriendsList();
+  renderYourBlocks();
+}));

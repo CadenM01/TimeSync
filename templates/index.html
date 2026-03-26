@@ -1,309 +1,355 @@
-<!-- templates/index.html -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>TimeSync</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <div class="container">
-    <header class="hero">
-      <div class="hero-copy">
-        <div class="hero-tag">Smart Availability Planner</div>
-        <h1>TimeSync</h1>
-        <p class="sub">
-          Save your schedule, share a friend code, and find the best meetup windows instantly.
-        </p>
-      </div>
-      <div class="hero-actions">
-        <div id="user-info" class="user-info hidden">
-          <span id="user-display-name" class="user-display-name"></span>
-          <span id="user-friend-code" class="user-friend-code" title="Your friend code"></span>
-          <button id="copy-friend-code-hero" type="button" class="copy-code-btn" title="Copy friend code">Copy</button>
-          <button id="logout-btn" type="button" class="logout-btn">Sign Out</button>
-        </div>
-        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark mode">
-          <span class="theme-toggle-icon" aria-hidden="true">🌙</span>
-          <span class="theme-toggle-text">Dark Mode</span>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div class="brand">TimeSync</div>
+  <div class="divider"></div>
+  <div class="tab-nav">
+    <a class="tab active" href="#" data-view="schedule">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Schedule
+    </a>
+    <a class="tab" href="#" data-view="friends">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      Friends <span class="tab-badge" id="friends-count-badge">0</span>
+    </a>
+    <a class="tab" href="#" data-view="edit">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Edit
+    </a>
+    <a class="tab" href="#" data-view="import" id="open-import-modal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Import
+    </a>
+  </div>
+  <div class="top-right">
+    <div class="code-pill" id="friend-code-display" title="Copy your friend code">------</div>
+    <button class="icon-btn" id="theme-toggle" type="button" title="Toggle theme">
+      <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+    <div class="avatar-sm" id="user-avatar"></div>
+  </div>
+</div>
+
+<!-- Mobile Bottom Bar -->
+<div class="mobile-bar">
+  <div class="mobile-bar-inner">
+    <a class="mob-tab active" data-view="schedule">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Schedule
+    </a>
+    <a class="mob-tab" data-view="friends">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      Friends
+    </a>
+    <a class="mob-tab" data-view="edit">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Edit
+    </a>
+    <a class="mob-tab" data-view="more">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg>
+      More
+    </a>
+  </div>
+</div>
+
+<!-- Main Layout -->
+<div class="layout">
+  <!-- Schedule Area -->
+  <div class="main-area">
+    <div class="sub-header">
+      <div class="chips-container" id="chips-container"></div>
+      <div class="sub-right">
+        <button class="btn" id="free-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Free Time
+        </button>
+        <button class="btn btn-merge" id="merge-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+          Merged View
         </button>
       </div>
-    </header>
-
-    <div class="grid workspace-only">
-      <section class="card">
-        <h2>My Schedule</h2>
-        <p class="section-sub">Build and manage your default weekly schedule.</p>
-
-        <label>Days</label>
-        <div class="daypick" id="a-days">
-          <label><input type="checkbox" value="Mon"> Mon</label>
-          <label><input type="checkbox" value="Tue"> Tue</label>
-          <label><input type="checkbox" value="Wed"> Wed</label>
-          <label><input type="checkbox" value="Thu"> Thu</label>
-          <label><input type="checkbox" value="Fri"> Fri</label>
-          <label><input type="checkbox" value="Sat"> Sat</label>
-          <label><input type="checkbox" value="Sun"> Sun</label>
-        </div>
-
-        <label>Start
-            <div class="timepick">
-              <select id="a-start-h"></select>
-              <select id="a-start-m"></select>
-              <select id="a-start-ap"></select>
-            </div>
-          </label>
-
-          <label>End
-            <div class="timepick">
-              <select id="a-end-h"></select>
-              <select id="a-end-m"></select>
-              <select id="a-end-ap"></select>
-            </div>
-          </label>
-
-        <button id="a-add" type="button">Add Busy Block</button>
-        <ul id="a-list"></ul>
-      </section>
-
-      <section class="card">
-        <h2>Comparison Schedule</h2>
-        <p class="section-sub">Create saved comparisons with friends or classmates.</p>
-
-        <label for="comparison-select">Saved Comparison Schedules</label>
-        <select id="comparison-select"></select>
-
-        <div class="comparison-actions">
-          <button id="new-comparison" type="button">New Comparison</button>
-          <button id="save-comparison" type="button">Save Comparison</button>
-          <button id="delete-comparison" type="button" class="danger-button">Delete Comparison</button>
-        </div>
-
-        <label for="comparison-name">Comparison Name</label>
-        <input id="comparison-name" type="text" placeholder="e.g. Alex" />
-        <div id="comparison-status" class="muted">No saved comparison selected.</div>
-
-        <label>Days</label>
-        <div class="daypick" id="b-days">
-          <label><input type="checkbox" value="Mon"> Mon</label>
-          <label><input type="checkbox" value="Tue"> Tue</label>
-          <label><input type="checkbox" value="Wed"> Wed</label>
-          <label><input type="checkbox" value="Thu"> Thu</label>
-          <label><input type="checkbox" value="Fri"> Fri</label>
-          <label><input type="checkbox" value="Sat"> Sat</label>
-          <label><input type="checkbox" value="Sun"> Sun</label>
-        </div>
-
-        <label>Start
-            <div class="timepick">
-              <select id="b-start-h"></select>
-              <select id="b-start-m"></select>
-              <select id="b-start-ap"></select>
-            </div>
-          </label>
-
-          <label>End
-            <div class="timepick">
-              <select id="b-end-h"></select>
-              <select id="b-end-m"></select>
-              <select id="b-end-ap"></select>
-            </div>
-          </label>
-
-        <button id="b-add" type="button">Add Busy Block</button>
-        <ul id="b-list"></ul>
-      </section>
     </div>
 
-    <div class="actions">
-      <div class="import-button-wrap workspace-only">
-        <button id="open-import-modal" type="button" class="import-trigger-btn">Import Schedule from CPP</button>
-      </div>
-
-      <details class="persist-panel workspace-only">
-        <summary>Sharing & Settings</summary>
-        <div class="persist">
-          <div class="friend-code-section">
-            <div class="friend-code-display">
-              <span class="friend-code-label">Your Friend Code</span>
-              <code id="my-friend-code" class="friend-code-value">------</code>
-              <button id="copy-friend-code" type="button" class="copy-code-btn" title="Copy friend code">Copy</button>
-            </div>
-            <p class="muted friend-code-hint">Share this code with friends so they can import your schedule.</p>
-          </div>
-
-          <div class="sharing-divider"></div>
-
-          <label for="friend-code-input">Import Friend by Code</label>
-          <div class="persist-actions">
-            <input id="friend-code-input" type="text" placeholder="e.g. A3X9K2" maxlength="6" style="text-transform:uppercase;" />
-            <button id="import-friend" type="button">Import</button>
-          </div>
-
-          <div class="sharing-divider"></div>
-
-          <div class="persist-actions">
-            <button id="update-profile" type="button" class="primary-button">Save All Changes</button>
-          </div>
-
-          <div id="persist-status" class="muted"></div>
-          <div id="import-status" class="muted"></div>
-        </div>
-      </details>
-
-      <div class="compare-wrap workspace-only">
-        <div id="comparison-status-global" class="muted">Choose schedules, then compare to see shared availability.</div>
-        <button id="compare" type="button">Compare</button>
-      </div>
-    </div>
-
-    <section class="card workspace-only">
-      <h2>Weekly View</h2>
-      <div id="output" class="output muted">No results yet.</div>
-    </section>
-  </div>
-
-  <!-- Auth Modal -->
-  <div id="auth-modal" class="modal-backdrop" aria-hidden="false">
-    <div class="modal-card auth-modal-card" role="dialog" aria-modal="true">
-      <div class="auth-header">
-        <h3>Welcome to TimeSync</h3>
-        <p class="muted">Sign in to manage your schedule and share with friends.</p>
-      </div>
-      <div class="auth-tabs">
-        <button class="auth-tab active" data-tab="signin">Sign In</button>
-        <button class="auth-tab" data-tab="signup">Sign Up</button>
-      </div>
-      <div class="auth-tab-content" id="auth-tab-signin">
-        <label for="auth-signin-username">Username</label>
-        <input id="auth-signin-username" type="text" placeholder="your-username" autocomplete="username" />
-        <label for="auth-signin-password">Password</label>
-        <input id="auth-signin-password" type="password" placeholder="Password" autocomplete="current-password" />
-        <button id="auth-signin-btn" type="button" class="primary-button auth-submit-btn">Sign In</button>
-      </div>
-      <div class="auth-tab-content hidden" id="auth-tab-signup">
-        <label for="auth-signup-username">Username</label>
-        <input id="auth-signup-username" type="text" placeholder="choose-a-username" autocomplete="username" />
-        <label for="auth-signup-display">Display Name <span class="muted">(optional)</span></label>
-        <input id="auth-signup-display" type="text" placeholder="Your Name" />
-        <label for="auth-signup-password">Password</label>
-        <input id="auth-signup-password" type="password" placeholder="Min 6 characters" autocomplete="new-password" />
-        <label for="auth-signup-confirm">Confirm Password</label>
-        <input id="auth-signup-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" />
-        <button id="auth-signup-btn" type="button" class="primary-button auth-submit-btn">Create Account</button>
-      </div>
-      <div id="auth-status" class="muted auth-status"></div>
+    <div class="schedule-wrap">
+      <div class="schedule-grid" id="grid"></div>
     </div>
   </div>
 
-  <!-- Schedule Import Modal -->
-  <div id="import-schedule-modal" class="modal-backdrop hidden" aria-hidden="true">
-    <div class="modal-card import-modal-card" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+  <!-- Right Panel -->
+  <div class="side-panel">
+    <!-- Quick Actions -->
+    <div class="sp-section">
+      <div class="quick-row">
+        <button class="qa" id="qa-add-block">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Add Block</span>
+        </button>
+        <button class="qa" id="qa-import">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Import</span>
+        </button>
+        <button class="qa" id="qa-share">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          <span>Share</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Free Windows (hidden until toggled) -->
+    <div class="sp-section" id="free-panel" style="display:none">
+      <div class="sp-head">Free Windows <span class="cnt" id="free-cnt">0</span></div>
+      <div id="free-list"></div>
+    </div>
+
+    <!-- Friends -->
+    <div class="sp-section" id="friends-section">
+      <div class="sp-head">Friends <span class="cnt" id="friends-count">0</span></div>
+      <div id="friends-list"></div>
+      <div class="add-row">
+        <input type="text" id="add-friend-input" placeholder="Enter friend code" maxlength="6" />
+        <button class="btn btn-accent" id="add-friend-btn">Add</button>
+      </div>
+    </div>
+
+    <!-- Your Blocks -->
+    <div class="sp-section" id="your-blocks-section">
+      <div class="sp-head">Your Blocks <span class="cnt" id="your-blocks-count">0</span></div>
+      <div id="your-blocks-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Hidden legacy elements for backward compat ===== -->
+<div id="user-info" class="user-info hidden">
+  <span id="user-display-name" class="user-display-name"></span>
+  <span id="user-friend-code" class="user-friend-code"></span>
+  <button id="copy-friend-code-hero" type="button" class="copy-code-btn" title="Copy friend code">Copy</button>
+  <button id="logout-btn" type="button" class="logout-btn">Sign Out</button>
+</div>
+<code id="my-friend-code" class="hidden">------</code>
+
+<!-- Legacy schedule editing controls (hidden, used by app.js) -->
+<div class="hidden">
+  <div id="a-days">
+    <label><input type="checkbox" value="Mon"> Mon</label>
+    <label><input type="checkbox" value="Tue"> Tue</label>
+    <label><input type="checkbox" value="Wed"> Wed</label>
+    <label><input type="checkbox" value="Thu"> Thu</label>
+    <label><input type="checkbox" value="Fri"> Fri</label>
+    <label><input type="checkbox" value="Sat"> Sat</label>
+    <label><input type="checkbox" value="Sun"> Sun</label>
+  </div>
+  <select id="a-start-h"></select>
+  <select id="a-start-m"></select>
+  <select id="a-start-ap"></select>
+  <select id="a-end-h"></select>
+  <select id="a-end-m"></select>
+  <select id="a-end-ap"></select>
+  <button id="a-add" type="button">Add Busy Block</button>
+  <ul id="a-list"></ul>
+
+  <select id="comparison-select"></select>
+  <input id="comparison-name" type="text" />
+  <div id="comparison-status" class="muted"></div>
+  <button id="new-comparison" type="button">New Comparison</button>
+  <button id="save-comparison" type="button">Save Comparison</button>
+  <button id="delete-comparison" type="button">Delete Comparison</button>
+
+  <div id="b-days">
+    <label><input type="checkbox" value="Mon"> Mon</label>
+    <label><input type="checkbox" value="Tue"> Tue</label>
+    <label><input type="checkbox" value="Wed"> Wed</label>
+    <label><input type="checkbox" value="Thu"> Thu</label>
+    <label><input type="checkbox" value="Fri"> Fri</label>
+    <label><input type="checkbox" value="Sat"> Sat</label>
+    <label><input type="checkbox" value="Sun"> Sun</label>
+  </div>
+  <select id="b-start-h"></select>
+  <select id="b-start-m"></select>
+  <select id="b-start-ap"></select>
+  <select id="b-end-h"></select>
+  <select id="b-end-m"></select>
+  <select id="b-end-ap"></select>
+  <button id="b-add" type="button">Add Busy Block</button>
+  <ul id="b-list"></ul>
+
+  <button id="compare" type="button">Compare</button>
+  <div id="comparison-status-global" class="muted"></div>
+
+  <div id="output" class="output muted"></div>
+
+  <input id="friend-code-input" type="text" maxlength="6" />
+  <button id="import-friend" type="button">Import</button>
+  <div id="persist-status" class="muted"></div>
+  <div id="import-status" class="muted"></div>
+  <button id="update-profile" type="button">Save All Changes</button>
+  <button id="copy-friend-code" type="button">Copy</button>
+
+  <input type="checkbox" id="toggle-a" checked />
+  <input type="checkbox" id="toggle-b" checked />
+  <input type="checkbox" id="toggle-overlap" checked />
+  <div id="events-layer"></div>
+  <div id="best-open-slots"></div>
+</div>
+
+<!-- ===== Auth Modal ===== -->
+<div id="auth-modal" class="modal-backdrop" aria-hidden="false">
+  <div class="modal-card auth-modal" role="dialog" aria-modal="true">
+    <div class="auth-modal-header">
+      <h3>Welcome to TimeSync</h3>
+      <p class="muted">Sign in to manage your schedule and share with friends.</p>
+    </div>
+    <div class="auth-tab-bar">
+      <button class="auth-tab active" id="auth-tab-signin-btn" data-tab="signin">Sign In</button>
+      <button class="auth-tab" id="auth-tab-signup-btn" data-tab="signup">Sign Up</button>
+    </div>
+    <div class="auth-tab-content" id="auth-tab-signin">
+      <label for="auth-signin-username">Username</label>
+      <input id="auth-signin-username" type="text" placeholder="your-username" autocomplete="username" />
+      <label for="auth-signin-password">Password</label>
+      <input id="auth-signin-password" type="password" placeholder="Password" autocomplete="current-password" />
+      <button id="auth-signin-btn" type="button" class="primary-button auth-submit-btn">Sign In</button>
+    </div>
+    <div class="auth-tab-content hidden" id="auth-tab-signup">
+      <label for="auth-signup-username">Username</label>
+      <input id="auth-signup-username" type="text" placeholder="choose-a-username" autocomplete="username" />
+      <label for="auth-signup-display">Display Name <span class="muted">(optional)</span></label>
+      <input id="auth-signup-display" type="text" placeholder="Your Name" />
+      <label for="auth-signup-password">Password</label>
+      <input id="auth-signup-password" type="password" placeholder="Min 6 characters" autocomplete="new-password" />
+      <label for="auth-signup-confirm">Confirm Password</label>
+      <input id="auth-signup-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" />
+      <button id="auth-signup-btn" type="button" class="primary-button auth-submit-btn">Create Account</button>
+    </div>
+    <div id="auth-status" class="muted auth-status"></div>
+  </div>
+</div>
+
+<!-- ===== Import Modal ===== -->
+<div id="import-schedule-modal" class="modal-backdrop hidden" aria-hidden="true">
+  <div class="modal-card import-modal" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+    <div class="import-modal-header">
       <h3 id="import-modal-title">Import Schedule</h3>
-      <p class="muted">Import your class schedule from CPP or upload a screenshot.</p>
+      <button class="import-close-btn" id="import-close-btn" type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <p class="muted">Import your class schedule from CPP or upload a screenshot.</p>
 
-      <div class="import-tabs">
-        <button class="import-tab active" data-tab="bookmarklet">Bookmarklet</button>
-        <button class="import-tab" data-tab="screenshot">Screenshot Upload</button>
-        <button class="import-tab" data-tab="paste">Paste Text</button>
-      </div>
+    <div class="import-tabs">
+      <button class="import-tab active" data-tab="bookmarklet">Bookmarklet</button>
+      <button class="import-tab" data-tab="screenshot">Screenshot</button>
+      <button class="import-tab" data-tab="paste">Paste Text</button>
+    </div>
 
-      <div class="import-tab-content" id="tab-bookmarklet">
-        <div class="import-bookmarklet-section">
-          <p>Drag this button to your bookmarks bar, then click it when you're on your CPP schedule page:</p>
-          <div class="bookmarklet-drag-area">
-            <a id="bookmarklet-link" class="bookmarklet-button" href="#" title="Drag me to your bookmarks bar!">
-              Send to TimeSync
-            </a>
-          </div>
-          <div class="import-instructions">
-            <p><strong>How to use:</strong></p>
-            <ol>
-              <li>Drag the button above to your browser's bookmarks bar</li>
-              <li>Go to your CPP schedule page:<br>
-                <code>cmsweb.cms.cpp.edu</code> or <code>my.cpp.edu</code>
-              </li>
-              <li>Make sure your schedule/classes are visible on the page</li>
-              <li>Click the "Send to TimeSync" bookmark</li>
-              <li>Your schedule will be automatically imported here</li>
-            </ol>
-          </div>
+    <div class="import-tab-content" id="tab-bookmarklet">
+      <div class="import-bookmarklet-section">
+        <p>Drag this button to your bookmarks bar, then click it when you're on your CPP schedule page:</p>
+        <div class="bookmarklet-drag-area">
+          <a id="bookmarklet-link" class="bookmarklet-button" href="#" title="Drag me to your bookmarks bar!">
+            Send to TimeSync
+          </a>
         </div>
-      </div>
-
-      <div class="import-tab-content hidden" id="tab-screenshot">
-        <div class="import-upload-section">
-          <p>Upload a screenshot of your schedule:</p>
-          <div class="upload-dropzone" id="upload-dropzone">
-            <div class="upload-icon">+</div>
-            <p>Drag & drop your schedule screenshot here</p>
-            <p class="muted">or click to select a file</p>
-            <input type="file" id="schedule-image-input" accept="image/*" style="display:none" />
-          </div>
-          <div id="upload-preview" class="upload-preview hidden">
-            <img id="upload-preview-img" alt="Schedule preview" />
-            <button id="upload-remove" class="danger-button" type="button">Remove</button>
-          </div>
-          <button id="upload-parse-btn" class="primary-button" type="button" disabled>
-            Extract Schedule from Image
-          </button>
-          <div id="upload-status" class="muted"></div>
+        <div class="import-instructions">
+          <p><strong>How to use:</strong></p>
+          <ol>
+            <li>Drag the button above to your browser's bookmarks bar</li>
+            <li>Go to your CPP schedule page:<br>
+              <code>cmsweb.cms.cpp.edu</code> or <code>my.cpp.edu</code>
+            </li>
+            <li>Make sure your schedule/classes are visible on the page</li>
+            <li>Click the "Send to TimeSync" bookmark</li>
+            <li>Your schedule will be automatically imported here</li>
+          </ol>
         </div>
-      </div>
-
-      <div class="import-tab-content hidden" id="tab-paste">
-        <div class="import-paste-section">
-          <p>Paste your schedule text below. Supported formats:</p>
-          <ul class="import-format-list">
-            <li>JSON from the bookmarklet</li>
-            <li>Copied text from your schedule page</li>
-            <li>Lines with day codes and time ranges (e.g., "MoWeFr 9:00 AM - 9:50 AM")</li>
-            <li>Day-by-day text with headers like "__Monday__" and time lines like "09:00 am 09:50 am"</li>
-          </ul>
-          <textarea id="schedule-text-input" rows="8" placeholder='Example:&#10;__Monday__&#10;CS 4080-01: Concepts of Programming Languages&#10;Building: BLDG 8 345&#10;09:00 am 09:50 am&#10;&#10;__Tuesday__&#10;CS 4800-01: Software Engineering&#10;Building: BLDG 9 247&#10;08:30 am 09:45 am'></textarea>
-          <button id="parse-text-btn" class="primary-button" type="button">Parse Schedule</button>
-          <div id="paste-status" class="muted"></div>
-        </div>
-      </div>
-
-      <!-- Parsed results preview -->
-      <div id="import-preview-section" class="import-preview-section hidden">
-        <h4>Parsed Schedule (<span id="import-block-count">0</span> blocks)</h4>
-        <div id="import-preview-list" class="import-preview-list"></div>
-        <div class="import-target-section">
-          <label for="import-target">Import as:</label>
-          <select id="import-target">
-            <option value="my-schedule">My Schedule</option>
-            <option value="comparison">New Comparison Schedule</option>
-          </select>
-          <input id="import-comparison-name" type="text" placeholder="Comparison name (e.g., My Classes)" class="hidden" />
-        </div>
-      </div>
-
-      <div class="modal-actions">
-        <button id="import-modal-cancel" type="button" class="modal-cancel">Cancel</button>
-        <button id="import-modal-confirm" type="button" class="modal-confirm" disabled>Import Schedule</button>
       </div>
     </div>
-  </div>
 
-  <div id="comparison-name-modal" class="modal-backdrop hidden" aria-hidden="true">
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="comparison-name-modal-title">
-      <h3 id="comparison-name-modal-title">Name Comparison Schedule</h3>
-      <p id="comparison-name-modal-message" class="muted">Enter a name for this comparison schedule.</p>
-      <input id="comparison-name-modal-input" type="text" placeholder="e.g. Alex" />
-      <div class="modal-actions">
-        <button id="comparison-name-modal-cancel" type="button" class="modal-cancel">Cancel</button>
-        <button id="comparison-name-modal-confirm" type="button" class="modal-confirm">Enter</button>
+    <div class="import-tab-content hidden" id="tab-screenshot">
+      <div class="import-upload-section">
+        <p>Upload a screenshot of your schedule:</p>
+        <div class="upload-dropzone" id="upload-dropzone">
+          <div class="upload-icon">+</div>
+          <p>Drag & drop your schedule screenshot here</p>
+          <p class="muted">or click to select a file</p>
+          <input type="file" id="schedule-image-input" accept="image/*" style="display:none" />
+        </div>
+        <div id="upload-preview" class="upload-preview hidden">
+          <img id="upload-preview-img" alt="Schedule preview" />
+          <button id="upload-remove" class="danger-button" type="button">Remove</button>
+        </div>
+        <button id="upload-parse-btn" class="primary-button" type="button" disabled>
+          Extract Schedule from Image
+        </button>
+        <div id="upload-status" class="muted"></div>
       </div>
     </div>
+
+    <div class="import-tab-content hidden" id="tab-paste">
+      <div class="import-paste-section">
+        <p>Paste your schedule text below. Supported formats:</p>
+        <ul class="import-format-list">
+          <li>JSON from the bookmarklet</li>
+          <li>Copied text from your schedule page</li>
+          <li>Lines with day codes and time ranges (e.g., "MoWeFr 9:00 AM - 9:50 AM")</li>
+          <li>Day-by-day text with headers like "__Monday__" and time lines like "09:00 am 09:50 am"</li>
+        </ul>
+        <textarea id="schedule-text-input" rows="8" placeholder='Example:&#10;__Monday__&#10;CS 4080-01: Concepts of Programming Languages&#10;Building: BLDG 8 345&#10;09:00 am 09:50 am&#10;&#10;__Tuesday__&#10;CS 4800-01: Software Engineering&#10;Building: BLDG 9 247&#10;08:30 am 09:45 am'></textarea>
+        <button id="parse-text-btn" class="primary-button" type="button">Parse Schedule</button>
+        <div id="paste-status" class="muted"></div>
+      </div>
+    </div>
+
+    <!-- Parsed results preview -->
+    <div id="import-preview-section" class="import-preview-section hidden">
+      <h4>Parsed Schedule (<span id="import-block-count">0</span> blocks)</h4>
+      <div id="import-preview-list" class="import-preview-list"></div>
+      <div class="import-target-section">
+        <label for="import-target">Import as:</label>
+        <select id="import-target">
+          <option value="my-schedule">My Schedule</option>
+          <option value="comparison">New Comparison Schedule</option>
+        </select>
+        <input id="import-comparison-name" type="text" placeholder="Comparison name (e.g., My Classes)" class="hidden" />
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button id="import-modal-cancel" type="button" class="modal-cancel">Cancel</button>
+      <button id="import-modal-confirm" type="button" class="modal-confirm" disabled>Import Schedule</button>
+    </div>
   </div>
+</div>
 
-  <!-- Hidden elements for backward compat -->
-  <input id="schedule-key" type="hidden" />
-  <input id="friend-user-key" type="hidden" />
+<!-- ===== Comparison Name Modal ===== -->
+<div id="comparison-name-modal" class="modal-backdrop hidden" aria-hidden="true">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="comparison-name-modal-title">
+    <h3 id="comparison-name-modal-title">Name Comparison Schedule</h3>
+    <p id="comparison-name-modal-message" class="muted">Enter a name for this comparison schedule.</p>
+    <input id="comparison-name-modal-input" type="text" placeholder="e.g. Alex" />
+    <div class="modal-actions">
+      <button id="comparison-name-modal-cancel" type="button" class="modal-cancel">Cancel</button>
+      <button id="comparison-name-modal-confirm" type="button" class="modal-confirm">Enter</button>
+    </div>
+  </div>
+</div>
 
-  <script src="/static/app.js"></script>
+<!-- Hidden inputs -->
+<input id="schedule-key" type="hidden" />
+<input id="friend-user-key" type="hidden" />
+
+<script src="/static/app.js"></script>
 </body>
 </html>
