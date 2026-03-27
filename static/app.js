@@ -241,8 +241,10 @@ function buildIndividualBlocks() {
   allBlocks.forEach((b, idx) => {
     const lane = laneInfo.get(idx) || { laneIdx: 0, laneCount: 1 };
     const colW = m.cw - 4;
-    const blockW = colW / lane.laneCount;
-    const blockLeft = m.tw + b.day * m.cw + 2 + lane.laneIdx * blockW;
+    // Staggered overlap: each subsequent block offsets slightly right and narrows
+    const offsetPx = lane.laneCount > 1 ? lane.laneIdx * 18 : 0;
+    const blockW = colW - (lane.laneCount > 1 ? (lane.laneCount - 1) * 12 : 0);
+    const blockLeft = m.tw + b.day * m.cw + 2 + offsetPx;
 
     const el = document.createElement('div');
     el.className = `block ${b.cls} animate-in`;
@@ -251,6 +253,7 @@ function buildIndividualBlocks() {
       height: ${(b.end - b.start) * CELL_H - 2}px;
       left: ${blockLeft}px;
       width: ${blockW}px;
+      z-index: ${10 + lane.laneIdx};
       animation-delay: ${idx * 18}ms;
     `;
     el.innerHTML = `<div class="block-name">${b.label}</div><div class="block-time">${b.sub}</div>`;
@@ -2589,19 +2592,70 @@ function initGridCellClicks() {
   const cells = grid.querySelectorAll('.grid-cell');
   cells.forEach((cell, idx) => {
     cell.addEventListener('click', (e) => {
-      // Don't add block if clicking on an existing block
       if (e.target.closest('.block') || e.target.closest('.block-popover')) return;
+      closeBlockPopover();
       const dayIdx = idx % 7;
       const rowIdx = Math.floor(idx / 7);
       const hour = GRID_START_H + rowIdx;
       if (hour >= GRID_END_H) return;
       const day = DAYS[dayIdx];
-      const start = toHHMM(hour, 0);
+      const startH = hour;
       const endH = Math.min(hour + 1, GRID_END_H);
-      const end = toHHMM(endH, 0);
-      aBusy.push({ day, start, end, label: 'Busy Block' });
-      saveProfile({ silent: true });
-      renderAll();
+
+      // Show add-block popover at clicked cell
+      const cellRect = cell.getBoundingClientRect();
+      const gridRect = grid.getBoundingClientRect();
+      const pop = document.createElement('div');
+      pop.className = 'block-popover';
+      pop.style.top = (cellRect.top - gridRect.top + cell.offsetHeight) + 'px';
+      pop.style.left = Math.min(cellRect.left - gridRect.left, gridRect.width - 240) + 'px';
+
+      const startAP = startH >= 12 ? 'PM' : 'AM';
+      const endAP = endH >= 12 ? 'PM' : 'AM';
+      const startDisp = startH > 12 ? startH - 12 : (startH || 12);
+      const endDisp = endH > 12 ? endH - 12 : (endH || 12);
+
+      pop.innerHTML = `
+        <label>Block Name</label>
+        <input type="text" class="pop-label" value="Busy Block" />
+        <label>Day</label>
+        <select class="pop-day">${DAYS.map((d,i) => `<option value="${d}" ${i===dayIdx?'selected':''}>${d}</option>`).join('')}</select>
+        <label>Time</label>
+        <div class="pop-row">
+          <input type="time" class="pop-start" value="${toHHMM(startH, 0)}" />
+          <span style="color:var(--text-muted)">to</span>
+          <input type="time" class="pop-end" value="${toHHMM(endH, 0)}" />
+        </div>
+        <div class="pop-actions">
+          <button class="btn pop-cancel">Cancel</button>
+          <button class="btn btn-accent pop-save">Save</button>
+        </div>
+      `;
+      grid.appendChild(pop);
+
+      pop.querySelector('.pop-label').focus();
+      pop.querySelector('.pop-label').select();
+
+      pop.querySelector('.pop-cancel').onclick = () => pop.remove();
+      pop.querySelector('.pop-save').onclick = () => {
+        const label = pop.querySelector('.pop-label').value.trim() || 'Busy Block';
+        const selDay = pop.querySelector('.pop-day').value;
+        const start = pop.querySelector('.pop-start').value;
+        const end = pop.querySelector('.pop-end').value;
+        if (!start || !end || start >= end) { alert('Start must be before end.'); return; }
+        aBusy.push({ day: selDay, start, end, label });
+        saveProfile({ silent: true });
+        pop.remove();
+        renderAll();
+      };
+
+      // Close on outside click
+      setTimeout(() => {
+        const closeHandler = (ev) => {
+          if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener('mousedown', closeHandler); }
+        };
+        document.addEventListener('mousedown', closeHandler);
+      }, 10);
     });
   });
 }
@@ -2647,6 +2701,117 @@ function switchView(viewName) {
   }
 }
 
+// ---------- Friends View Helpers ----------
+
+function computeSharedFreeForFriend(friendIdx) {
+  // Get user's blocks
+  const userBlocks = aBusy.map(b => ({
+    day: DAYS.indexOf(b.day),
+    start: hhmmToDecimal(b.start),
+    end: hhmmToDecimal(b.end)
+  })).filter(b => b.day >= 0);
+
+  // Get this friend's blocks
+  const comp = comparisonSchedules[friendIdx];
+  if (!comp) return [];
+  const friendBlocks = (comp.busy || []).map(b => ({
+    day: DAYS.indexOf(b.day),
+    start: hhmmToDecimal(b.start),
+    end: hhmmToDecimal(b.end)
+  })).filter(b => b.day >= 0);
+
+  // Merge both into busy intervals per day
+  const byDay = {};
+  for (let d = 0; d < 7; d++) byDay[d] = [];
+  [...userBlocks, ...friendBlocks].forEach(b => byDay[b.day].push({start: b.start, end: b.end}));
+
+  // Merge intervals per day
+  const merged = {};
+  for (let d = 0; d < 7; d++) {
+    const ivs = byDay[d].sort((a,b) => a.start - b.start);
+    const m = [];
+    for (const iv of ivs) {
+      if (m.length && iv.start <= m[m.length-1].end) {
+        m[m.length-1].end = Math.max(m[m.length-1].end, iv.end);
+      } else {
+        m.push({...iv});
+      }
+    }
+    merged[d] = m;
+  }
+
+  // Find free gaps Mon-Fri, 8AM-8PM
+  const WORK_START = 8, WORK_END = 20;
+  const freeSlots = [];
+  for (let d = 0; d < 5; d++) {
+    let cursor = WORK_START;
+    for (const b of merged[d]) {
+      if (b.start > cursor + 0.25) {
+        freeSlots.push({day: d, start: cursor, end: b.start, dur: b.start - cursor});
+      }
+      cursor = Math.max(cursor, b.end);
+    }
+    if (cursor < WORK_END - 0.25) {
+      freeSlots.push({day: d, start: cursor, end: WORK_END, dur: WORK_END - cursor});
+    }
+  }
+
+  // Sort by duration descending
+  freeSlots.sort((a,b) => b.dur - a.dur);
+  return freeSlots.slice(0, 3);
+}
+
+function formatDuration(hours) {
+  if (hours >= 1) {
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  return `${Math.round(hours * 60)}m`;
+}
+
+function getFriendLastViewed(friendCode) {
+  if (!friendCode) return 0;
+  const val = localStorage.getItem(`timesync_friend_viewed_${friendCode}`);
+  return val ? parseInt(val, 10) : 0;
+}
+
+function setFriendLastViewed(friendCode) {
+  if (!friendCode) return;
+  localStorage.setItem(`timesync_friend_viewed_${friendCode}`, Date.now().toString());
+}
+
+function friendHasUpdate(comp) {
+  if (!comp || !comp.updatedAt || !comp.sourceUserKey) return false;
+  const lastViewed = getFriendLastViewed(comp.sourceUserKey);
+  const updatedTs = new Date(comp.updatedAt).getTime();
+  return updatedTs > lastViewed;
+}
+
+function formatTimeAgo(dateStr) {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+function getMessages(friendCode) {
+  if (!friendCode) return [];
+  try {
+    return JSON.parse(localStorage.getItem(`timesync_messages_${friendCode}`) || '[]');
+  } catch { return []; }
+}
+
+function saveMessages(friendCode, messages) {
+  if (!friendCode) return;
+  localStorage.setItem(`timesync_messages_${friendCode}`, JSON.stringify(messages));
+}
+
 function buildFriendsView() {
   const container = document.createElement('div');
   container.className = 'view-dynamic view-friends';
@@ -2657,14 +2822,79 @@ function buildFriendsView() {
     const color = AVATAR_COLORS[idx % AVATAR_COLORS.length];
     const initials = (comp.name || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
     const blockCount = (comp.busy || []).length;
-    friendCards += `
-      <div class="friend-card" style="display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:var(--surface);">
-        <div class="fr-av ${color}" style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">${initials}</div>
-        <div style="flex:1;min-width:0;">
-          <div style="font-weight:600;font-size:15px;">${comp.name || 'Friend'}</div>
-          <div style="font-size:12px;color:var(--muted);">${comp.sourceUserKey || 'No code'} &middot; ${blockCount} block${blockCount !== 1 ? 's' : ''}</div>
+    const friendCode = comp.sourceUserKey || '';
+    const hasUpdate = friendHasUpdate(comp);
+    const updatedAtStr = comp.updatedAt ? formatTimeAgo(comp.updatedAt) : '';
+
+    // Mark as viewed when rendering
+    if (friendCode) setFriendLastViewed(friendCode);
+
+    // Shared free time
+    const sharedSlots = computeSharedFreeForFriend(idx);
+    let sharedHtml = '';
+    if (sharedSlots.length > 0) {
+      let slotRows = '';
+      sharedSlots.forEach(slot => {
+        const durStr = formatDuration(slot.dur);
+        slotRows += `
+          <div style="display:flex;align-items:center;gap:8px;padding:3px 0;">
+            <span style="font-size:10px;font-weight:700;font-family:'Geist Mono',monospace;color:var(--accent);width:26px;">${DAYS[slot.day].toUpperCase()}</span>
+            <span style="font-size:11px;font-weight:600;flex:1;">${decimalToTimeStr(slot.start)} - ${decimalToTimeStr(slot.end)}</span>
+            <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-family:'Geist Mono',monospace;">${durStr}</span>
+          </div>
+        `;
+      });
+      sharedHtml = `
+        <div class="friend-shared-times" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Shared Free Time</div>
+          ${slotRows}
         </div>
-        <button class="btn pop-delete friend-remove-btn" data-idx="${idx}" style="font-size:12px;padding:4px 10px;">Remove</button>
+      `;
+    } else {
+      sharedHtml = `
+        <div class="friend-shared-times" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Shared Free Time</div>
+          <div style="font-size:11px;color:var(--muted);padding:4px 0;">No overlapping free time found</div>
+        </div>
+      `;
+    }
+
+    // Notification dot
+    const notifDot = hasUpdate
+      ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-left:6px;vertical-align:middle;"></span>`
+      : '';
+
+    // Updated timestamp
+    const updatedLine = updatedAtStr
+      ? `<div style="font-size:10px;color:var(--accent);margin-top:1px;">Schedule updated ${updatedAtStr}</div>`
+      : '';
+
+    // Messages
+    const messages = getMessages(friendCode);
+
+    friendCards += `
+      <div class="friend-card" data-friend-idx="${idx}" data-friend-code="${friendCode}" style="padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:var(--surface);">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="fr-av ${color}" style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">${initials}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;font-size:15px;">${comp.name || 'Friend'}${notifDot}</div>
+            <div style="font-size:12px;color:var(--muted);">${friendCode || 'No code'} &middot; ${blockCount} block${blockCount !== 1 ? 's' : ''}</div>
+            ${updatedLine}
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="btn friend-msg-toggle-btn" data-idx="${idx}" style="font-size:12px;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer;">Message${messages.length > 0 ? ` (${messages.length})` : ''}</button>
+            <button class="btn pop-delete friend-remove-btn" data-idx="${idx}" style="font-size:12px;padding:4px 10px;">Remove</button>
+          </div>
+        </div>
+        ${sharedHtml}
+        <div class="friend-chat-area" data-chat-idx="${idx}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          <div class="friend-chat-messages" data-msgs-idx="${idx}" style="max-height:200px;overflow-y:auto;margin-bottom:8px;padding:6px;border-radius:8px;background:var(--bg);border:1px solid var(--border);min-height:60px;">
+          </div>
+          <div style="display:flex;gap:6px;">
+            <input type="text" class="pop-input friend-chat-input" data-input-idx="${idx}" placeholder="Type a message..." style="flex:1;font-size:13px;" />
+            <button class="btn btn-accent friend-chat-send" data-send-idx="${idx}" style="font-size:12px;padding:4px 12px;">Send</button>
+          </div>
+        </div>
       </div>
     `;
   });
@@ -2695,6 +2925,8 @@ function buildFriendsView() {
         switchView('friends'); // re-render
       };
     }
+
+    // Remove buttons
     document.querySelectorAll('.friend-remove-btn').forEach(btn => {
       btn.onclick = async () => {
         const idx = parseInt(btn.dataset.idx);
@@ -2707,9 +2939,94 @@ function buildFriendsView() {
         switchView('friends');
       };
     });
+
+    // Message toggle buttons
+    document.querySelectorAll('.friend-msg-toggle-btn').forEach(btn => {
+      btn.onclick = () => {
+        const idx = btn.dataset.idx;
+        const chatArea = document.querySelector(`.friend-chat-area[data-chat-idx="${idx}"]`);
+        if (!chatArea) return;
+        const isOpen = chatArea.style.display !== 'none';
+        chatArea.style.display = isOpen ? 'none' : 'block';
+        if (!isOpen) renderChatMessages(idx);
+      };
+    });
+
+    // Send buttons
+    document.querySelectorAll('.friend-chat-send').forEach(btn => {
+      btn.onclick = () => {
+        const idx = parseInt(btn.dataset.sendIdx);
+        sendChatMessage(idx);
+      };
+    });
+
+    // Enter key on chat inputs
+    document.querySelectorAll('.friend-chat-input').forEach(input => {
+      input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const idx = parseInt(input.dataset.inputIdx);
+          sendChatMessage(idx);
+        }
+      };
+    });
   }, 0);
 
   return container;
+}
+
+function renderChatMessages(idx) {
+  const comp = comparisonSchedules[idx];
+  if (!comp) return;
+  const friendCode = comp.sourceUserKey || '';
+  const messages = getMessages(friendCode);
+  const container = document.querySelector(`.friend-chat-messages[data-msgs-idx="${idx}"]`);
+  if (!container) return;
+
+  if (messages.length === 0) {
+    container.innerHTML = '<div style="font-size:11px;color:var(--muted);text-align:center;padding:16px 0;">No messages yet</div>';
+    return;
+  }
+
+  let html = '';
+  messages.forEach(msg => {
+    const isMe = msg.from === 'me';
+    const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : '';
+    const dateStr = msg.timestamp ? new Date(msg.timestamp).toLocaleDateString([], {month:'short',day:'numeric'}) : '';
+    html += `
+      <div style="display:flex;justify-content:${isMe ? 'flex-end' : 'flex-start'};margin-bottom:6px;">
+        <div style="max-width:80%;padding:6px 10px;border-radius:${isMe ? '10px 10px 2px 10px' : '10px 10px 10px 2px'};background:${isMe ? 'var(--accent)' : 'var(--border)'};color:${isMe ? '#fff' : 'var(--text)'};font-size:12px;">
+          <div>${msg.text}</div>
+          <div style="font-size:9px;opacity:0.7;margin-top:2px;text-align:${isMe ? 'right' : 'left'};">${dateStr} ${time}</div>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+  container.scrollTop = container.scrollHeight;
+}
+
+function sendChatMessage(idx) {
+  const comp = comparisonSchedules[idx];
+  if (!comp) return;
+  const friendCode = comp.sourceUserKey || '';
+  const input = document.querySelector(`.friend-chat-input[data-input-idx="${idx}"]`);
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+
+  const messages = getMessages(friendCode);
+  messages.push({ text, timestamp: Date.now(), from: 'me' });
+  saveMessages(friendCode, messages);
+  input.value = '';
+  renderChatMessages(idx);
+
+  // Update message count on button
+  const btn = document.querySelector(`.friend-msg-toggle-btn[data-idx="${idx}"]`);
+  if (btn) {
+    btn.textContent = `Message (${messages.length})`;
+  }
 }
 
 function buildEditView() {
@@ -2971,7 +3288,18 @@ document.getElementById('qa-share')?.addEventListener('click', () => {
   }).catch(() => {});
 });
 document.getElementById('qa-add-block')?.addEventListener('click', () => {
-  switchView('edit');
+  // Scroll grid to a reasonable time and flash a hint to click
+  const grid = document.getElementById('grid');
+  if (grid) {
+    const wrap = grid.closest('.schedule-wrap');
+    if (wrap) wrap.scrollTop = 0;
+    // Brief visual hint on grid cells
+    grid.querySelectorAll('.grid-cell').forEach(c => {
+      c.style.transition = 'background 0.3s';
+      c.style.background = 'var(--accent-soft)';
+      setTimeout(() => { c.style.background = ''; }, 600);
+    });
+  }
 });
 
 // Add friend by code

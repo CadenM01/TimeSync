@@ -305,7 +305,7 @@ body {
   transform-origin: top center;
 }
 
-.block:hover { z-index: 20; filter: brightness(1.15); }
+.block:hover { z-index: 50 !important; filter: brightness(1.15); box-shadow: 0 4px 12px rgba(0,0,0,0.35); }
 
 .block-name {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3;
