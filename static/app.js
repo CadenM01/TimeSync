@@ -26,6 +26,21 @@ const FRIEND_CLASSES = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'];
 const FRIEND_COLORS = ['pink', 'cyan', 'amber', 'purple', 'green', 'rose'];
 const AVATAR_COLORS = ['pink', 'cyan', 'amber', 'purple', 'green', 'rose'];
 
+// Block color palette for user customization
+const BLOCK_COLORS = [
+  { id: 'blue',   label: 'Blue',   bg: 'rgba(59,130,246,0.28)',  border: '#3b82f6', text: '#93c5fd' },
+  { id: 'pink',   label: 'Pink',   bg: 'rgba(236,72,153,0.28)',  border: '#ec4899', text: '#f9a8d4' },
+  { id: 'cyan',   label: 'Cyan',   bg: 'rgba(6,182,212,0.25)',   border: '#06b6d4', text: '#67e8f9' },
+  { id: 'amber',  label: 'Amber',  bg: 'rgba(245,158,11,0.25)',  border: '#f59e0b', text: '#fde047' },
+  { id: 'purple', label: 'Purple', bg: 'rgba(168,85,247,0.28)',  border: '#a855f7', text: '#d8b4fe' },
+  { id: 'green',  label: 'Green',  bg: 'rgba(34,197,94,0.25)',   border: '#22c55e', text: '#86efac' },
+  { id: 'red',    label: 'Red',    bg: 'rgba(239,68,68,0.25)',   border: '#ef4444', text: '#fca5a5' },
+];
+
+function getBlockColor(colorId) {
+  return BLOCK_COLORS.find(c => c.id === colorId) || BLOCK_COLORS[0];
+}
+
 // ---------- Concept C state ----------
 let individualEls = [];
 let mergedEls = [];
@@ -51,7 +66,14 @@ function minutesToHHMM(totalMin) {
 }
 
 function cloneBusyList(list) {
-  return (list || []).map((b) => ({ day: b.day, start: b.start, end: b.end, label: b.label || undefined }));
+  return (list || []).map((b) => {
+    const clone = { day: b.day, start: b.start, end: b.end };
+    if (b.label) clone.label = b.label;
+    if (b.color) clone.color = b.color;
+    if (b.note) clone.note = b.note;
+    if (b.remote) clone.remote = b.remote;
+    return clone;
+  });
 }
 
 function makeId() {
@@ -111,7 +133,10 @@ function getAllScheduleBlocks() {
       label: b.label || 'Busy Block',
       sub: `${decimalToTimeStr(start)} – ${decimalToTimeStr(end)}`,
       cls: 'you',
-      srcIdx: bIdx // index into aBusy for editing
+      srcIdx: bIdx,
+      color: b.color || 'blue',
+      note: b.note || '',
+      remote: !!b.remote
     });
   });
 
@@ -206,12 +231,11 @@ function buildIndividualBlocks() {
   const multiPeople = activePeople.size > 1;
 
   if (multiPeople) {
-    // AUTO-MERGE: show merged busy blocks + keep user's own blocks visible underneath
-    // 1. Build merged intervals from ALL active people
+    // AUTO-MERGE: show ONLY clean merged blocks — one color, one block per overlap
     const merged = computeMergedIntervals();
     Object.entries(merged).forEach(([dayStr, ivs]) => {
       const d = parseInt(dayStr);
-      ivs.forEach(iv => {
+      ivs.forEach((iv, i) => {
         const el = document.createElement('div');
         el.className = 'block merged animate-in';
         const dur = iv.end - iv.start;
@@ -220,46 +244,22 @@ function buildIndividualBlocks() {
           height: ${dur * CELL_H - 2}px;
           left: ${m.tw + d * m.cw + 2}px;
           width: ${m.cw - 4}px;
-          z-index: 8;
+          z-index: 10;
+          animation-delay: ${i * 18}ms;
         `;
-        const h = Math.floor(dur);
-        const min = Math.round((dur % 1) * 60);
-        const durStr = min ? `${h}h ${min}m` : `${h}h`;
-        el.innerHTML = `<div class="block-name">Busy</div><div class="block-time">${durStr}</div>`;
+        el.innerHTML = `<div class="block-name">Busy</div><div class="block-time">${decimalToTimeStr(iv.start)} – ${decimalToTimeStr(iv.end)}</div>`;
         grid.appendChild(el);
         mergedEls.push(el);
       });
     });
-
-    // 2. Overlay user's own blocks on top so they can click-to-edit
-    const userBlocks = allBlocks.filter(b => b.cls === 'you');
-    userBlocks.forEach((b, idx) => {
-      const el = document.createElement('div');
-      el.className = `block ${b.cls} animate-in`;
-      el.style.cssText = `
-        top: ${m.headerH + (b.start - GRID_START_H) * CELL_H}px;
-        height: ${(b.end - b.start) * CELL_H - 2}px;
-        left: ${m.tw + b.day * m.cw + 2}px;
-        width: ${(m.cw - 4) * 0.45}px;
-        z-index: 12;
-        animation-delay: ${idx * 18}ms;
-      `;
-      el.innerHTML = `<div class="block-name">${b.label}</div><div class="block-time">${b.sub}</div>`;
-      if (b.srcIdx != null) {
-        el.style.cursor = 'pointer';
-        el.addEventListener('click', (e) => {
-          e.stopPropagation();
-          openBlockPopover(b.srcIdx, el);
-        });
-      }
-      grid.appendChild(el);
-      individualEls.push(el);
-    });
   } else {
-    // SINGLE PERSON: show blocks normally at full width
+    // SINGLE PERSON: show blocks with custom colors, notes, remote badges
     allBlocks.forEach((b, idx) => {
       const el = document.createElement('div');
-      el.className = `block ${b.cls} animate-in`;
+      const c = getBlockColor(b.color);
+      el.className = 'block animate-in';
+      const remoteIcon = b.remote ? '<span style="font-size:9px;opacity:0.8;margin-left:3px;background:rgba(255,255,255,0.12);padding:1px 4px;border-radius:3px;font-weight:700;letter-spacing:0.03em;">ONLINE</span>' : '';
+      const noteHtml = b.note ? `<div class="block-note" style="font-size:8px;font-weight:400;opacity:0.7;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${b.note}</div>` : '';
       el.style.cssText = `
         top: ${m.headerH + (b.start - GRID_START_H) * CELL_H}px;
         height: ${(b.end - b.start) * CELL_H - 2}px;
@@ -267,8 +267,12 @@ function buildIndividualBlocks() {
         width: ${m.cw - 4}px;
         z-index: 10;
         animation-delay: ${idx * 18}ms;
+        background: ${c.bg};
+        border-left-color: ${c.border};
+        color: ${c.text};
+        box-shadow: 0 0 0 1px ${c.border} inset;
       `;
-      el.innerHTML = `<div class="block-name">${b.label}</div><div class="block-time">${b.sub}</div>`;
+      el.innerHTML = `<div class="block-name">${b.label}${remoteIcon}</div><div class="block-time">${b.sub}</div>${noteHtml}`;
 
       if (b.cls === 'you' && b.srcIdx != null) {
         el.style.cursor = 'pointer';
@@ -604,11 +608,14 @@ function renderYourBlocks() {
   });
 
   sorted.forEach(b => {
+    const c = getBlockColor(b.color || 'blue');
+    const remoteBadge = b.remote ? '<span style="font-size:8px;background:var(--accent-soft);color:var(--accent);padding:1px 4px;border-radius:3px;font-weight:700;margin-left:4px;">ONLINE</span>' : '';
     const row = document.createElement('div');
     row.className = 'my-block-row';
     row.innerHTML = `
+      <span style="width:8px;height:8px;border-radius:50%;background:${c.border};flex-shrink:0;"></span>
       <span class="mb-day">${b.day.slice(0, 3).toUpperCase()}</span>
-      <span class="mb-name">${b.label || 'Busy Block'}</span>
+      <span class="mb-name">${b.label || 'Busy Block'}${remoteBadge}</span>
       <span class="mb-time">${to12Hour(b.start)}</span>
     `;
     list.appendChild(row);
@@ -2500,18 +2507,19 @@ function openBlockPopover(busyIdx, anchorEl) {
   pop.className = 'block-popover';
 
   const label = b.label || 'Busy Block';
+  const curColor = b.color || 'blue';
+  const curNote = b.note || '';
+  const curRemote = !!b.remote;
   pop.innerHTML = `
     <div class="pop-field">
       <label>Block Name</label>
       <input type="text" class="pop-input" id="pop-label" value="${label}" />
     </div>
     <div class="pop-field">
-      <label>Start Time</label>
-      <input type="time" class="pop-input" id="pop-start" value="${b.start}" />
-    </div>
-    <div class="pop-field">
-      <label>End Time</label>
-      <input type="time" class="pop-input" id="pop-end" value="${b.end}" />
+      <label>Color</label>
+      <div id="pop-colors" style="display:flex;gap:5px;flex-wrap:wrap;">
+        ${BLOCK_COLORS.map(c => `<div data-color="${c.id}" title="${c.label}" style="width:22px;height:22px;border-radius:50%;background:${c.border};cursor:pointer;border:2px solid ${c.id === curColor ? 'white' : 'transparent'};transition:border-color 0.15s;"></div>`).join('')}
+      </div>
     </div>
     <div class="pop-field">
       <label>Day</label>
@@ -2519,11 +2527,43 @@ function openBlockPopover(busyIdx, anchorEl) {
         ${DAYS.map(d => `<option value="${d}" ${d === b.day ? 'selected' : ''}>${d}</option>`).join('')}
       </select>
     </div>
+    <div class="pop-field" style="display:flex;gap:8px;">
+      <div style="flex:1;"><label>Start</label><input type="time" class="pop-input" id="pop-start" value="${b.start}" /></div>
+      <div style="flex:1;"><label>End</label><input type="time" class="pop-input" id="pop-end" value="${b.end}" /></div>
+    </div>
+    <div class="pop-field">
+      <label>Note</label>
+      <input type="text" class="pop-input" id="pop-note" value="${curNote}" placeholder="Add a note..." />
+    </div>
+    <div class="pop-field" style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+      <label style="margin:0;flex:1;">Remote / Online</label>
+      <div id="pop-remote-toggle" style="width:36px;height:20px;border-radius:10px;background:${curRemote ? 'var(--accent)' : 'var(--border-strong)'};cursor:pointer;position:relative;transition:background 0.2s;">
+        <div style="width:16px;height:16px;border-radius:50%;background:white;position:absolute;top:2px;left:${curRemote ? '18px' : '2px'};transition:left 0.2s;"></div>
+      </div>
+    </div>
     <div class="pop-actions">
       <button class="btn btn-accent" id="pop-save">Save</button>
       <button class="btn pop-delete" id="pop-del">Delete</button>
     </div>
   `;
+
+  // Color picker interaction
+  let selectedColor = curColor;
+  pop.querySelectorAll('#pop-colors div').forEach(dot => {
+    dot.addEventListener('click', () => {
+      selectedColor = dot.dataset.color;
+      pop.querySelectorAll('#pop-colors div').forEach(d => d.style.borderColor = d.dataset.color === selectedColor ? 'white' : 'transparent');
+    });
+  });
+
+  // Remote toggle interaction
+  let isRemote = curRemote;
+  const remoteToggle = pop.querySelector('#pop-remote-toggle');
+  remoteToggle.addEventListener('click', () => {
+    isRemote = !isRemote;
+    remoteToggle.style.background = isRemote ? 'var(--accent)' : 'var(--border-strong)';
+    remoteToggle.querySelector('div').style.left = isRemote ? '18px' : '2px';
+  });
 
   // Position near the anchor element
   const rect = anchorEl.getBoundingClientRect();
@@ -2554,11 +2594,12 @@ function openBlockPopover(busyIdx, anchorEl) {
     const newStart = pop.querySelector('#pop-start').value;
     const newEnd = pop.querySelector('#pop-end').value;
     const newDay = pop.querySelector('#pop-day').value;
+    const newNote = pop.querySelector('#pop-note').value.trim();
     if (!newStart || !newEnd || newStart >= newEnd) {
       alert('Start must be before end.');
       return;
     }
-    aBusy[busyIdx] = { day: newDay, start: newStart, end: newEnd, label: newLabel };
+    aBusy[busyIdx] = { day: newDay, start: newStart, end: newEnd, label: newLabel, color: selectedColor, note: newNote || undefined, remote: isRemote || undefined };
     closeBlockPopover();
     saveProfile({ silent: true });
     renderAll();
@@ -2614,9 +2655,15 @@ function initGridCellClicks() {
       const startDisp = startH > 12 ? startH - 12 : (startH || 12);
       const endDisp = endH > 12 ? endH - 12 : (endH || 12);
 
+      let addColor = 'blue';
+      let addRemote = false;
       pop.innerHTML = `
         <label>Block Name</label>
         <input type="text" class="pop-label" value="Busy Block" />
+        <label>Color</label>
+        <div class="pop-add-colors" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:4px;">
+          ${BLOCK_COLORS.map(c => `<div data-color="${c.id}" title="${c.label}" style="width:20px;height:20px;border-radius:50%;background:${c.border};cursor:pointer;border:2px solid ${c.id === 'blue' ? 'white' : 'transparent'};transition:border-color 0.15s;"></div>`).join('')}
+        </div>
         <label>Days</label>
         <div class="pop-days" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">
           ${DAYS.map((d,i) => `<label style="display:flex;align-items:center;gap:3px;font-size:11px;font-weight:600;color:var(--text-secondary);cursor:pointer;padding:3px 6px;border:1px solid var(--border-strong);border-radius:4px;user-select:none;">
@@ -2629,6 +2676,14 @@ function initGridCellClicks() {
           <span style="color:var(--text-muted)">to</span>
           <input type="time" class="pop-end" value="${toHHMM(endH, 0)}" />
         </div>
+        <label>Note <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+        <input type="text" class="pop-note" placeholder="Add context..." />
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+          <label style="margin:0;flex:1;">Remote / Online</label>
+          <div class="pop-remote-add" style="width:36px;height:20px;border-radius:10px;background:var(--border-strong);cursor:pointer;position:relative;transition:background 0.2s;">
+            <div style="width:16px;height:16px;border-radius:50%;background:white;position:absolute;top:2px;left:2px;transition:left 0.2s;"></div>
+          </div>
+        </div>
         <div class="pop-actions">
           <button class="btn pop-cancel">Cancel</button>
           <button class="btn btn-accent pop-save">Save</button>
@@ -2638,6 +2693,22 @@ function initGridCellClicks() {
 
       pop.querySelector('.pop-label').focus();
       pop.querySelector('.pop-label').select();
+
+      // Color picker
+      pop.querySelectorAll('.pop-add-colors div').forEach(dot => {
+        dot.addEventListener('click', () => {
+          addColor = dot.dataset.color;
+          pop.querySelectorAll('.pop-add-colors div').forEach(d => d.style.borderColor = d.dataset.color === addColor ? 'white' : 'transparent');
+        });
+      });
+
+      // Remote toggle
+      const remoteAdd = pop.querySelector('.pop-remote-add');
+      remoteAdd.addEventListener('click', () => {
+        addRemote = !addRemote;
+        remoteAdd.style.background = addRemote ? 'var(--accent)' : 'var(--border-strong)';
+        remoteAdd.querySelector('div').style.left = addRemote ? '18px' : '2px';
+      });
 
       // Highlight checked day labels
       pop.querySelectorAll('.pop-days input[type="checkbox"]').forEach(cb => {
@@ -2654,12 +2725,18 @@ function initGridCellClicks() {
       pop.querySelector('.pop-cancel').onclick = () => pop.remove();
       pop.querySelector('.pop-save').onclick = () => {
         const label = pop.querySelector('.pop-label').value.trim() || 'Busy Block';
+        const note = pop.querySelector('.pop-note').value.trim();
         const checkedDays = Array.from(pop.querySelectorAll('.pop-days input[type="checkbox"]:checked')).map(cb => cb.value);
         const start = pop.querySelector('.pop-start').value;
         const end = pop.querySelector('.pop-end').value;
         if (!checkedDays.length) { alert('Select at least one day.'); return; }
         if (!start || !end || start >= end) { alert('Start must be before end.'); return; }
-        checkedDays.forEach(day => aBusy.push({ day, start, end, label }));
+        checkedDays.forEach(day => {
+          const block = { day, start, end, label, color: addColor };
+          if (note) block.note = note;
+          if (addRemote) block.remote = true;
+          aBusy.push(block);
+        });
         saveProfile({ silent: true });
         pop.remove();
         renderAll();
