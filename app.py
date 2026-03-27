@@ -22,7 +22,7 @@ if _env_path.is_file():
                 if _key and _key not in os.environ:
                     os.environ[_key] = _val
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
@@ -147,7 +147,9 @@ if LoginManager is not None:
 
     @login_manager.unauthorized_handler
     def unauthorized():
-        return jsonify({"ok": False, "error": "Authentication required."}), 401
+        if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+            return jsonify({"ok": False, "error": "Authentication required."}), 401
+        return redirect("/login")
 
 
 def now_iso() -> str:
@@ -439,8 +441,17 @@ def db_unavailable_response():
     return None
 
 
+@app.get("/login")
+def login_page():
+    if LoginManager is not None and current_user.is_authenticated:
+        return redirect("/")
+    return render_template("login.html")
+
+
 @app.get("/")
 def index():
+    if LoginManager is not None and not current_user.is_authenticated:
+        return redirect("/login")
     return render_template("index.html")
 
 

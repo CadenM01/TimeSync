@@ -204,39 +204,6 @@
   <div id="best-open-slots"></div>
 </div>
 
-<!-- ===== Auth Modal ===== -->
-<div id="auth-modal" class="modal-backdrop" aria-hidden="false">
-  <div class="modal-card auth-modal" role="dialog" aria-modal="true">
-    <div class="auth-modal-header">
-      <h3>Welcome to TimeSync</h3>
-      <p class="muted">Sign in to manage your schedule and share with friends.</p>
-    </div>
-    <div class="auth-tab-bar">
-      <button class="auth-tab active" id="auth-tab-signin-btn" data-tab="signin">Sign In</button>
-      <button class="auth-tab" id="auth-tab-signup-btn" data-tab="signup">Sign Up</button>
-    </div>
-    <div class="auth-tab-content" id="auth-tab-signin">
-      <label for="auth-signin-username">Username</label>
-      <input id="auth-signin-username" type="text" placeholder="your-username" autocomplete="username" />
-      <label for="auth-signin-password">Password</label>
-      <input id="auth-signin-password" type="password" placeholder="Password" autocomplete="current-password" />
-      <button id="auth-signin-btn" type="button" class="primary-button auth-submit-btn">Sign In</button>
-    </div>
-    <div class="auth-tab-content hidden" id="auth-tab-signup">
-      <label for="auth-signup-username">Username</label>
-      <input id="auth-signup-username" type="text" placeholder="choose-a-username" autocomplete="username" />
-      <label for="auth-signup-display">Display Name <span class="muted">(optional)</span></label>
-      <input id="auth-signup-display" type="text" placeholder="Your Name" />
-      <label for="auth-signup-password">Password</label>
-      <input id="auth-signup-password" type="password" placeholder="Min 6 characters" autocomplete="new-password" />
-      <label for="auth-signup-confirm">Confirm Password</label>
-      <input id="auth-signup-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" />
-      <button id="auth-signup-btn" type="button" class="primary-button auth-submit-btn">Create Account</button>
-    </div>
-    <div id="auth-status" class="muted auth-status"></div>
-  </div>
-</div>
-
 <!-- ===== Import Modal ===== -->
 <div id="import-schedule-modal" class="modal-backdrop hidden" aria-hidden="true">
   <div class="modal-card import-modal" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">

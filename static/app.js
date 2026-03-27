@@ -51,7 +51,7 @@ function minutesToHHMM(totalMin) {
 }
 
 function cloneBusyList(list) {
-  return (list || []).map((b) => ({ day: b.day, start: b.start, end: b.end }));
+  return (list || []).map((b) => ({ day: b.day, start: b.start, end: b.end, label: b.label || undefined }));
 }
 
 function makeId() {
@@ -101,16 +101,17 @@ function getAllScheduleBlocks() {
   const blocks = [];
 
   // User's blocks
-  aBusy.forEach(b => {
+  aBusy.forEach((b, bIdx) => {
     const dayIdx = DAYS.indexOf(b.day);
     if (dayIdx === -1) return;
     const start = hhmmToDecimal(b.start);
     const end = hhmmToDecimal(b.end);
     blocks.push({
       day: dayIdx, start, end,
-      label: 'Busy Block',
+      label: b.label || 'Busy Block',
       sub: `${decimalToTimeStr(start)} – ${decimalToTimeStr(end)}`,
-      cls: 'you'
+      cls: 'you',
+      srcIdx: bIdx // index into aBusy for editing
     });
   });
 
@@ -199,19 +200,70 @@ function buildIndividualBlocks() {
   const grid = document.getElementById('grid');
   if (!grid) return;
 
-  const allBlocks = getAllScheduleBlocks();
+  const allBlocks = getAllScheduleBlocks().filter(b => activePeople.has(b.cls));
+
+  // Group blocks by day for overlap detection
+  const byDay = {};
   allBlocks.forEach((b, idx) => {
-    if (!activePeople.has(b.cls)) return;
+    if (!byDay[b.day]) byDay[b.day] = [];
+    byDay[b.day].push({ ...b, origIdx: idx });
+  });
+
+  // For each day, detect overlapping groups and assign lane positions
+  const laneInfo = new Map(); // origIdx -> { laneIdx, laneCount }
+  Object.values(byDay).forEach(dayBlocks => {
+    // Sort by start time
+    dayBlocks.sort((a, b) => a.start - b.start);
+    // Find overlap groups using a sweep
+    const groups = [];
+    let currentGroup = [];
+    let groupEnd = -Infinity;
+    dayBlocks.forEach(b => {
+      if (b.start < groupEnd) {
+        currentGroup.push(b);
+        groupEnd = Math.max(groupEnd, b.end);
+      } else {
+        if (currentGroup.length) groups.push(currentGroup);
+        currentGroup = [b];
+        groupEnd = b.end;
+      }
+    });
+    if (currentGroup.length) groups.push(currentGroup);
+
+    groups.forEach(group => {
+      const n = group.length;
+      group.forEach((b, i) => {
+        laneInfo.set(b.origIdx, { laneIdx: i, laneCount: n });
+      });
+    });
+  });
+
+  allBlocks.forEach((b, idx) => {
+    const lane = laneInfo.get(idx) || { laneIdx: 0, laneCount: 1 };
+    const colW = m.cw - 4;
+    const blockW = colW / lane.laneCount;
+    const blockLeft = m.tw + b.day * m.cw + 2 + lane.laneIdx * blockW;
+
     const el = document.createElement('div');
     el.className = `block ${b.cls} animate-in`;
     el.style.cssText = `
       top: ${m.headerH + (b.start - GRID_START_H) * CELL_H}px;
       height: ${(b.end - b.start) * CELL_H - 2}px;
-      left: ${m.tw + b.day * m.cw + 2}px;
-      width: ${m.cw - 4}px;
+      left: ${blockLeft}px;
+      width: ${blockW}px;
       animation-delay: ${idx * 18}ms;
     `;
     el.innerHTML = `<div class="block-name">${b.label}</div><div class="block-time">${b.sub}</div>`;
+
+    // Click to edit own blocks
+    if (b.cls === 'you' && b.srcIdx != null) {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openBlockPopover(b.srcIdx, el);
+      });
+    }
+
     grid.appendChild(el);
     individualEls.push(el);
   });
@@ -373,48 +425,64 @@ function toggleMerge() {
     mergedMode = true;
     if (btn) btn.classList.add('active');
 
-    buildMergedBlocks();
-
-    individualEls.forEach(el => {
-      el.classList.add('fading-out');
+    // Phase 1: fade out + scale down individual blocks
+    individualEls.forEach((el, i) => {
+      el.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+      el.style.transitionDelay = `${i * 20}ms`;
+      el.style.opacity = '0';
+      el.style.transform = 'scale(0.92)';
     });
 
+    // Phase 2: after individual blocks fade, show merged blocks growing in
     setTimeout(() => {
       individualEls.forEach(el => el.classList.add('hidden-block'));
-      mergedEls.forEach(el => {
-        requestAnimationFrame(() => {
-          el.classList.remove('fading-in');
-          el.style.opacity = '1';
-          el.style.transform = 'scaleY(1)';
-        });
-      });
-    }, 320);
-
-  } else {
-    mergedMode = false;
-    if (btn) btn.classList.remove('active');
-
-    mergedEls.forEach(el => {
-      el.style.opacity = '0';
-      el.style.transform = 'scaleY(0.9)';
-    });
-
-    setTimeout(() => {
-      mergedEls.forEach(el => el.remove());
-      mergedEls = [];
-      individualEls.forEach(el => {
-        el.classList.remove('hidden-block', 'fading-out');
+      buildMergedBlocks();
+      mergedEls.forEach((el, i) => {
         el.style.opacity = '0';
-        el.style.transform = 'scaleY(0.9)';
+        el.style.transform = 'scaleY(0.3)';
+        el.style.transformOrigin = 'center center';
+        el.style.transition = 'opacity 0.32s ease, transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1)';
+        el.style.transitionDelay = `${i * 30}ms`;
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            el.style.transition = 'opacity 0.28s ease, transform 0.28s ease';
+            el.classList.remove('fading-in');
             el.style.opacity = '1';
             el.style.transform = 'scaleY(1)';
           });
         });
       });
-    }, 320);
+    }, 300);
+
+  } else {
+    mergedMode = false;
+    if (btn) btn.classList.remove('active');
+
+    // Phase 1: scale down merged blocks
+    mergedEls.forEach((el, i) => {
+      el.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+      el.style.transitionDelay = `${i * 20}ms`;
+      el.style.opacity = '0';
+      el.style.transform = 'scaleY(0.3)';
+    });
+
+    // Phase 2: staggered fade-in of individual blocks
+    setTimeout(() => {
+      mergedEls.forEach(el => el.remove());
+      mergedEls = [];
+      individualEls.forEach((el, i) => {
+        el.classList.remove('hidden-block', 'fading-out');
+        el.style.opacity = '0';
+        el.style.transform = 'scale(0.92)';
+        el.style.transition = 'opacity 0.28s ease, transform 0.28s ease';
+        el.style.transitionDelay = `${i * 25}ms`;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            el.style.opacity = '1';
+            el.style.transform = 'scale(1)';
+          });
+        });
+      });
+    }, 300);
   }
 }
 
@@ -478,6 +546,7 @@ function toggleChip(chip, person) {
     buildIndividualBlocks();
   }
   if (freeMode) buildFreeBlocks();
+  computeBestMeetupTimes();
 }
 
 // ---------- Friends list rendering ----------
@@ -537,7 +606,7 @@ function renderYourBlocks() {
     row.className = 'my-block-row';
     row.innerHTML = `
       <span class="mb-day">${b.day.slice(0, 3).toUpperCase()}</span>
-      <span class="mb-name">Busy Block</span>
+      <span class="mb-name">${b.label || 'Busy Block'}</span>
       <span class="mb-time">${to12Hour(b.start)}</span>
     `;
     list.appendChild(row);
@@ -554,6 +623,8 @@ function renderAll() {
     renderFriendsList();
     renderYourBlocks();
     if (freeMode) buildFreeBlocks();
+    computeBestMeetupTimes();
+    initGridCellClicks();
   }));
 }
 
@@ -910,19 +981,11 @@ function updateUserInfoBar() {
 // ---------- Auth ----------
 
 function showAuthModal() {
-  const modal = document.getElementById("auth-modal");
-  if (modal) {
-    modal.classList.remove("hidden");
-    modal.setAttribute("aria-hidden", "false");
-  }
+  window.location.href = '/login';
 }
 
 function hideAuthModal() {
-  const modal = document.getElementById("auth-modal");
-  if (modal) {
-    modal.classList.add("hidden");
-    modal.setAttribute("aria-hidden", "true");
-  }
+  // no-op — login page handles this
 }
 
 function setAuthStatus(msg, isError = false) {
@@ -2415,6 +2478,462 @@ function checkUrlForImportData() {
   }
 }
 
+// ---------- Block Edit Popover ----------
+
+let activePopover = null;
+
+function closeBlockPopover() {
+  if (activePopover) {
+    activePopover.remove();
+    activePopover = null;
+  }
+}
+
+function openBlockPopover(busyIdx, anchorEl) {
+  closeBlockPopover();
+  const b = aBusy[busyIdx];
+  if (!b) return;
+
+  const pop = document.createElement('div');
+  pop.className = 'block-popover';
+
+  const label = b.label || 'Busy Block';
+  pop.innerHTML = `
+    <div class="pop-field">
+      <label>Block Name</label>
+      <input type="text" class="pop-input" id="pop-label" value="${label}" />
+    </div>
+    <div class="pop-field">
+      <label>Start Time</label>
+      <input type="time" class="pop-input" id="pop-start" value="${b.start}" />
+    </div>
+    <div class="pop-field">
+      <label>End Time</label>
+      <input type="time" class="pop-input" id="pop-end" value="${b.end}" />
+    </div>
+    <div class="pop-field">
+      <label>Day</label>
+      <select class="pop-input" id="pop-day">
+        ${DAYS.map(d => `<option value="${d}" ${d === b.day ? 'selected' : ''}>${d}</option>`).join('')}
+      </select>
+    </div>
+    <div class="pop-actions">
+      <button class="btn btn-accent" id="pop-save">Save</button>
+      <button class="btn pop-delete" id="pop-del">Delete</button>
+    </div>
+  `;
+
+  // Position near the anchor element
+  const rect = anchorEl.getBoundingClientRect();
+  const grid = document.getElementById('grid');
+  const gridRect = grid ? grid.getBoundingClientRect() : { left: 0, top: 0 };
+  pop.style.position = 'absolute';
+  pop.style.zIndex = '1000';
+  pop.style.left = `${rect.right - gridRect.left + 8}px`;
+  pop.style.top = `${rect.top - gridRect.top}px`;
+
+  if (grid) grid.appendChild(pop);
+  activePopover = pop;
+
+  // Ensure popover is in viewport
+  requestAnimationFrame(() => {
+    const popRect = pop.getBoundingClientRect();
+    if (popRect.right > window.innerWidth) {
+      pop.style.left = `${rect.left - gridRect.left - popRect.width - 8}px`;
+    }
+    if (popRect.bottom > window.innerHeight) {
+      pop.style.top = `${Math.max(0, rect.bottom - gridRect.top - popRect.height)}px`;
+    }
+  });
+
+  pop.querySelector('#pop-save').onclick = (e) => {
+    e.stopPropagation();
+    const newLabel = pop.querySelector('#pop-label').value.trim() || 'Busy Block';
+    const newStart = pop.querySelector('#pop-start').value;
+    const newEnd = pop.querySelector('#pop-end').value;
+    const newDay = pop.querySelector('#pop-day').value;
+    if (!newStart || !newEnd || newStart >= newEnd) {
+      alert('Start must be before end.');
+      return;
+    }
+    aBusy[busyIdx] = { day: newDay, start: newStart, end: newEnd, label: newLabel };
+    closeBlockPopover();
+    saveProfile({ silent: true });
+    renderAll();
+  };
+
+  pop.querySelector('#pop-del').onclick = (e) => {
+    e.stopPropagation();
+    aBusy.splice(busyIdx, 1);
+    closeBlockPopover();
+    saveProfile({ silent: true });
+    renderAll();
+  };
+
+  // Prevent clicks inside popover from propagating
+  pop.addEventListener('click', (e) => e.stopPropagation());
+}
+
+// Close popover on outside click
+document.addEventListener('click', (e) => {
+  if (activePopover && !activePopover.contains(e.target)) {
+    closeBlockPopover();
+  }
+});
+
+// ---------- Click-to-Add on Grid Cells ----------
+
+function initGridCellClicks() {
+  const grid = document.getElementById('grid');
+  if (!grid) return;
+  const cells = grid.querySelectorAll('.grid-cell');
+  cells.forEach((cell, idx) => {
+    cell.addEventListener('click', (e) => {
+      // Don't add block if clicking on an existing block
+      if (e.target.closest('.block') || e.target.closest('.block-popover')) return;
+      const dayIdx = idx % 7;
+      const rowIdx = Math.floor(idx / 7);
+      const hour = GRID_START_H + rowIdx;
+      if (hour >= GRID_END_H) return;
+      const day = DAYS[dayIdx];
+      const start = toHHMM(hour, 0);
+      const endH = Math.min(hour + 1, GRID_END_H);
+      const end = toHHMM(endH, 0);
+      aBusy.push({ day, start, end, label: 'Busy Block' });
+      saveProfile({ silent: true });
+      renderAll();
+    });
+  });
+}
+
+// ---------- Tab Navigation ----------
+
+let currentView = 'schedule';
+
+function switchView(viewName) {
+  if (viewName === 'import') {
+    openImportModal();
+    return;
+  }
+  currentView = viewName;
+
+  // Update tab active states
+  document.querySelectorAll('.tab[data-view]').forEach(t => {
+    t.classList.toggle('active', t.dataset.view === viewName);
+  });
+  document.querySelectorAll('.mob-tab[data-view]').forEach(t => {
+    t.classList.toggle('active', t.dataset.view === viewName);
+  });
+
+  // Show/hide content areas
+  const layout = document.querySelector('.layout');
+  const mainArea = document.querySelector('.main-area');
+  const sidePanel = document.querySelector('.side-panel');
+
+  // Remove any dynamic view containers
+  document.querySelectorAll('.view-dynamic').forEach(el => el.remove());
+
+  if (viewName === 'schedule') {
+    if (mainArea) mainArea.style.display = '';
+    if (sidePanel) sidePanel.style.display = '';
+  } else if (viewName === 'friends') {
+    if (mainArea) mainArea.style.display = 'none';
+    if (sidePanel) sidePanel.style.display = 'none';
+    if (layout) layout.appendChild(buildFriendsView());
+  } else if (viewName === 'edit') {
+    if (mainArea) mainArea.style.display = 'none';
+    if (sidePanel) sidePanel.style.display = 'none';
+    if (layout) layout.appendChild(buildEditView());
+  }
+}
+
+function buildFriendsView() {
+  const container = document.createElement('div');
+  container.className = 'view-dynamic view-friends';
+  container.style.cssText = 'padding: 24px; width: 100%; max-width: 600px; margin: 0 auto;';
+
+  let friendCards = '';
+  comparisonSchedules.forEach((comp, idx) => {
+    const color = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+    const initials = (comp.name || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+    const blockCount = (comp.busy || []).length;
+    friendCards += `
+      <div class="friend-card" style="display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:var(--surface);">
+        <div class="fr-av ${color}" style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">${initials}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;font-size:15px;">${comp.name || 'Friend'}</div>
+          <div style="font-size:12px;color:var(--muted);">${comp.sourceUserKey || 'No code'} &middot; ${blockCount} block${blockCount !== 1 ? 's' : ''}</div>
+        </div>
+        <button class="btn pop-delete friend-remove-btn" data-idx="${idx}" style="font-size:12px;padding:4px 10px;">Remove</button>
+      </div>
+    `;
+  });
+
+  if (!comparisonSchedules.length) {
+    friendCards = '<div style="color:var(--muted);text-align:center;padding:32px 0;">No friends added yet. Use a friend code to add someone.</div>';
+  }
+
+  container.innerHTML = `
+    <h2 style="font-size:20px;font-weight:700;margin-bottom:16px;">Friends</h2>
+    <div class="add-row" style="display:flex;gap:8px;margin-bottom:20px;">
+      <input type="text" class="pop-input" id="friends-view-code" placeholder="Enter friend code" maxlength="6" style="flex:1;" />
+      <button class="btn btn-accent" id="friends-view-add">Add Friend</button>
+    </div>
+    <div id="friends-view-list">${friendCards}</div>
+  `;
+
+  // Wire up after appending
+  setTimeout(() => {
+    const addBtn = document.getElementById('friends-view-add');
+    const codeInput = document.getElementById('friends-view-code');
+    if (addBtn && codeInput) {
+      addBtn.onclick = async () => {
+        const code = codeInput.value.trim().toUpperCase();
+        if (code.length !== 6) { alert('Friend code must be 6 characters.'); return; }
+        await importFriendByCode(code);
+        codeInput.value = '';
+        switchView('friends'); // re-render
+      };
+    }
+    document.querySelectorAll('.friend-remove-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const idx = parseInt(btn.dataset.idx);
+        if (isNaN(idx) || idx < 0 || idx >= comparisonSchedules.length) return;
+        const name = comparisonSchedules[idx].name;
+        if (!confirm(`Remove "${name}" from friends?`)) return;
+        comparisonSchedules.splice(idx, 1);
+        await saveProfile({ silent: true });
+        renderAll();
+        switchView('friends');
+      };
+    });
+  }, 0);
+
+  return container;
+}
+
+function buildEditView() {
+  const container = document.createElement('div');
+  container.className = 'view-dynamic view-edit';
+  container.style.cssText = 'padding: 24px; width: 100%; max-width: 600px; margin: 0 auto;';
+
+  const dayChecks = DAYS.map(d => `
+    <label style="display:inline-flex;align-items:center;gap:4px;margin-right:8px;font-size:13px;cursor:pointer;">
+      <input type="checkbox" value="${d}" class="edit-day-cb" /> ${d}
+    </label>
+  `).join('');
+
+  // Build current blocks list
+  const sorted = [...aBusy].map((b, i) => ({ ...b, idx: i })).sort((a, b) => {
+    const di = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
+    if (di !== 0) return di;
+    return a.start.localeCompare(b.start);
+  });
+
+  let blockRows = '';
+  sorted.forEach(b => {
+    blockRows += `
+      <div class="edit-block-row" style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--surface);">
+        <span style="font-weight:600;width:36px;font-size:13px;">${b.day}</span>
+        <span style="flex:1;font-size:13px;">${b.label || 'Busy Block'}</span>
+        <span style="font-size:12px;color:var(--muted);">${to12Hour(b.start)} - ${to12Hour(b.end)}</span>
+        <button class="btn pop-delete edit-del-btn" data-idx="${b.idx}" style="font-size:11px;padding:3px 8px;">Delete</button>
+      </div>
+    `;
+  });
+
+  if (!sorted.length) {
+    blockRows = '<div style="color:var(--muted);text-align:center;padding:20px;">No busy blocks yet.</div>';
+  }
+
+  container.innerHTML = `
+    <h2 style="font-size:20px;font-weight:700;margin-bottom:16px;">Edit Schedule</h2>
+    <div style="border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px;background:var(--surface);">
+      <div style="margin-bottom:10px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Block Name</label>
+        <input type="text" class="pop-input" id="edit-block-name" placeholder="Busy Block" value="Busy Block" style="width:100%;" />
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Days</label>
+        <div id="edit-days">${dayChecks}</div>
+      </div>
+      <div style="display:flex;gap:12px;margin-bottom:12px;">
+        <div style="flex:1;">
+          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Start</label>
+          <div style="display:flex;gap:4px;">
+            <select class="pop-input" id="edit-start-h">${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select>
+            <select class="pop-input" id="edit-start-m">${Array.from({length:12},(_,i)=>`<option value="${i*5}">${String(i*5).padStart(2,'0')}</option>`).join('')}</select>
+            <select class="pop-input" id="edit-start-ap"><option>AM</option><option>PM</option></select>
+          </div>
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">End</label>
+          <div style="display:flex;gap:4px;">
+            <select class="pop-input" id="edit-end-h">${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select>
+            <select class="pop-input" id="edit-end-m">${Array.from({length:12},(_,i)=>`<option value="${i*5}">${String(i*5).padStart(2,'0')}</option>`).join('')}</select>
+            <select class="pop-input" id="edit-end-ap"><option>AM</option><option selected>PM</option></select>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-accent" id="edit-add-btn" style="width:100%;">Add Block</button>
+    </div>
+    <h3 style="font-size:16px;font-weight:600;margin-bottom:10px;">Current Blocks (${aBusy.length})</h3>
+    <div id="edit-blocks-list">${blockRows}</div>
+  `;
+
+  // Wire up
+  setTimeout(() => {
+    // Set default start = 9 AM, end = 10 AM
+    const sh = document.getElementById('edit-start-h');
+    const sm = document.getElementById('edit-start-m');
+    const sap = document.getElementById('edit-start-ap');
+    const eh = document.getElementById('edit-end-h');
+    const em = document.getElementById('edit-end-m');
+    const eap = document.getElementById('edit-end-ap');
+    if (sh) sh.value = '9';
+    if (eh) eh.value = '10';
+
+    document.getElementById('edit-add-btn')?.addEventListener('click', async () => {
+      const name = (document.getElementById('edit-block-name')?.value || '').trim() || 'Busy Block';
+      const selectedDays = Array.from(document.querySelectorAll('.edit-day-cb:checked')).map(cb => cb.value);
+      if (!selectedDays.length) { alert('Select at least one day.'); return; }
+
+      const startH = parseInt(document.getElementById('edit-start-h').value);
+      const startM = parseInt(document.getElementById('edit-start-m').value);
+      const startAP = document.getElementById('edit-start-ap').value;
+      const endH = parseInt(document.getElementById('edit-end-h').value);
+      const endM = parseInt(document.getElementById('edit-end-m').value);
+      const endAP = document.getElementById('edit-end-ap').value;
+
+      let s24 = startH % 12; if (startAP === 'PM') s24 += 12;
+      let e24 = endH % 12; if (endAP === 'PM') e24 += 12;
+      const start = toHHMM(s24, startM);
+      const end = toHHMM(e24, endM);
+
+      if (start >= end) { alert('Start must be before end.'); return; }
+
+      for (const day of selectedDays) {
+        aBusy.push({ day, start, end, label: name });
+      }
+      await saveProfile({ silent: true });
+      renderAll();
+      switchView('edit'); // re-render edit view
+    });
+
+    document.querySelectorAll('.edit-del-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const idx = parseInt(btn.dataset.idx);
+        if (isNaN(idx) || idx < 0 || idx >= aBusy.length) return;
+        aBusy.splice(idx, 1);
+        await saveProfile({ silent: true });
+        renderAll();
+        switchView('edit');
+      };
+    });
+  }, 0);
+
+  return container;
+}
+
+function initTabNavigation() {
+  // Top bar tabs
+  document.querySelectorAll('.tab[data-view]').forEach(tab => {
+    tab.addEventListener('click', (e) => {
+      e.preventDefault();
+      switchView(tab.dataset.view);
+    });
+  });
+
+  // Mobile bottom bar tabs
+  document.querySelectorAll('.mob-tab[data-view]').forEach(tab => {
+    tab.addEventListener('click', (e) => {
+      e.preventDefault();
+      const view = tab.dataset.view;
+      if (view === 'more') {
+        // "More" could open import modal or toggle something else
+        openImportModal();
+        return;
+      }
+      switchView(view);
+    });
+  });
+}
+
+// ---------- Best Meetup Times ----------
+
+function ensureBestTimesPanel() {
+  let panel = document.getElementById('best-times-panel');
+  if (panel) return panel;
+
+  const sidePanel = document.querySelector('.side-panel');
+  if (!sidePanel) return null;
+
+  panel = document.createElement('div');
+  panel.className = 'sp-section';
+  panel.id = 'best-times-panel';
+  panel.style.display = 'none';
+  panel.innerHTML = `
+    <div class="sp-head">Best Meetup Times <span class="cnt" id="best-times-cnt">0</span></div>
+    <div id="best-times-list"></div>
+  `;
+
+  // Insert before friends section
+  const friendsSection = document.getElementById('friends-section');
+  if (friendsSection) {
+    sidePanel.insertBefore(panel, friendsSection);
+  } else {
+    sidePanel.appendChild(panel);
+  }
+  return panel;
+}
+
+function computeBestMeetupTimes() {
+  const panel = ensureBestTimesPanel();
+  if (!panel) return;
+
+  const activeCount = activePeople.size;
+  if (activeCount < 2) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = 'block';
+
+  const mergedBusy = computeMergedIntervals();
+  const freeSlots = computeFreeIntervals(mergedBusy);
+
+  // Sort by duration descending
+  const sorted = [...freeSlots].sort((a, b) => (b.end - b.start) - (a.end - a.start));
+  const top5 = sorted.slice(0, 5);
+
+  const cntEl = document.getElementById('best-times-cnt');
+  const listEl = document.getElementById('best-times-list');
+  if (cntEl) cntEl.textContent = top5.length;
+  if (!listEl) return;
+  listEl.innerHTML = '';
+
+  const fmtH = t => {
+    const h = Math.floor(t), m = Math.round((t % 1) * 60);
+    const ap = t >= 12 ? 'PM' : 'AM';
+    const hd = h > 12 ? h - 12 : h || 12;
+    return `${hd}:${m.toString().padStart(2, '0')} ${ap}`;
+  };
+
+  top5.forEach(slot => {
+    const d = slot.end - slot.start;
+    const h = Math.floor(d), m = Math.round((d % 1) * 60);
+    const durStr = m ? `${h}h ${m}m` : `${h}h`;
+    const row = document.createElement('div');
+    row.className = 'free-item';
+    row.innerHTML = `
+      <span class="fi-day">${DAYS[slot.day].substring(0, 3).toUpperCase()}</span>
+      <span class="fi-time">${fmtH(slot.start)} - ${fmtH(slot.end)}</span>
+      <span class="fi-dur">${durStr}</span>
+    `;
+    listEl.appendChild(row);
+  });
+}
+
 // ---------- New Concept C UI wiring ----------
 
 // Friend code pill copy
@@ -2440,15 +2959,19 @@ document.getElementById('qa-import')?.addEventListener('click', () => {
   openImportModal();
 });
 document.getElementById('qa-share')?.addEventListener('click', () => {
-  const code = document.getElementById('friend-code-display')?.textContent;
-  if (code && code !== '------') {
-    navigator.clipboard.writeText(code).catch(() => {});
-  }
+  const code = currentUser?.friendCode;
+  if (!code) return;
+  navigator.clipboard.writeText(code).then(() => {
+    const btn = document.getElementById('qa-share');
+    if (btn) {
+      const origHTML = btn.innerHTML;
+      btn.querySelector('span').textContent = 'Copied!';
+      setTimeout(() => { btn.querySelector('span').textContent = 'Share'; }, 1500);
+    }
+  }).catch(() => {});
 });
 document.getElementById('qa-add-block')?.addEventListener('click', () => {
-  // Scroll legacy add-block section into view if present
-  const addSection = document.getElementById('a-add') || document.getElementById('a-days');
-  if (addSection) addSection.scrollIntoView({ behavior: 'smooth' });
+  switchView('edit');
 });
 
 // Add friend by code
@@ -2464,11 +2987,7 @@ document.getElementById('add-friend-btn')?.addEventListener('click', async () =>
   input.value = '';
 });
 
-// Import tab in topbar opens modal
-document.getElementById('open-import-modal')?.addEventListener('click', (e) => {
-  e.preventDefault();
-  openImportModal();
-});
+// Import tab in topbar is handled by initTabNavigation (switchView('import') opens modal)
 
 // Resize handler
 window.addEventListener('resize', () => {
@@ -2482,6 +3001,7 @@ initThemeToggle();
 initComparisonNameModal();
 initImportModal();
 initAuth();
+initTabNavigation();
 clearDaySelections();
 renderBusyList(aBusy, "a-list");
 renderBusyList(bBusy, "b-list", markComparisonDirty);
@@ -2500,4 +3020,6 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
   buildIndividualBlocks();
   renderFriendsList();
   renderYourBlocks();
+  computeBestMeetupTimes();
+  initGridCellClicks();
 }));
