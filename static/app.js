@@ -23,8 +23,8 @@ const CELL_H = 44; // pixels per hour
 const GRID_START_H = 8; // 8 AM
 const GRID_END_H = 21; // 9 PM
 const FRIEND_CLASSES = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'];
-const FRIEND_COLORS = ['pink', 'cyan', 'amber', 'purple', 'green', 'rose'];
-const AVATAR_COLORS = ['pink', 'cyan', 'amber', 'purple', 'green', 'rose'];
+const FRIEND_COLORS = ['pink', 'cyan', 'amber', 'purple', 'green', 'red'];
+const AVATAR_COLORS = ['pink', 'cyan', 'amber', 'purple', 'green', 'red'];
 
 // Block color palette for user customization
 const BLOCK_COLORS = [
@@ -152,7 +152,8 @@ function getAllScheduleBlocks() {
         day: dayIdx, start, end,
         label: comp.name || 'Friend',
         sub: `${decimalToTimeStr(start)} – ${decimalToTimeStr(end)}`,
-        cls
+        cls,
+        color: FRIEND_COLORS[idx % FRIEND_COLORS.length]
       });
     });
   });
