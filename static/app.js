@@ -193,6 +193,8 @@ function getColMetrics() {
 function buildIndividualBlocks() {
   individualEls.forEach(el => el.remove());
   individualEls = [];
+  mergedEls.forEach(el => el.remove());
+  mergedEls = [];
 
   const m = getColMetrics();
   if (!m) return;
@@ -201,75 +203,85 @@ function buildIndividualBlocks() {
   if (!grid) return;
 
   const allBlocks = getAllScheduleBlocks().filter(b => activePeople.has(b.cls));
+  const multiPeople = activePeople.size > 1;
 
-  // Group blocks by day for overlap detection
-  const byDay = {};
-  allBlocks.forEach((b, idx) => {
-    if (!byDay[b.day]) byDay[b.day] = [];
-    byDay[b.day].push({ ...b, origIdx: idx });
-  });
+  if (multiPeople) {
+    // AUTO-MERGE: show merged busy blocks + keep user's own blocks visible underneath
+    // 1. Build merged intervals from ALL active people
+    const merged = computeMergedIntervals();
+    Object.entries(merged).forEach(([dayStr, ivs]) => {
+      const d = parseInt(dayStr);
+      ivs.forEach(iv => {
+        const el = document.createElement('div');
+        el.className = 'block merged animate-in';
+        const dur = iv.end - iv.start;
+        el.style.cssText = `
+          top: ${m.headerH + (iv.start - GRID_START_H) * CELL_H}px;
+          height: ${dur * CELL_H - 2}px;
+          left: ${m.tw + d * m.cw + 2}px;
+          width: ${m.cw - 4}px;
+          z-index: 8;
+        `;
+        const h = Math.floor(dur);
+        const min = Math.round((dur % 1) * 60);
+        const durStr = min ? `${h}h ${min}m` : `${h}h`;
+        el.innerHTML = `<div class="block-name">Busy</div><div class="block-time">${durStr}</div>`;
+        grid.appendChild(el);
+        mergedEls.push(el);
+      });
+    });
 
-  // For each day, detect overlapping groups and assign lane positions
-  const laneInfo = new Map(); // origIdx -> { laneIdx, laneCount }
-  Object.values(byDay).forEach(dayBlocks => {
-    // Sort by start time
-    dayBlocks.sort((a, b) => a.start - b.start);
-    // Find overlap groups using a sweep
-    const groups = [];
-    let currentGroup = [];
-    let groupEnd = -Infinity;
-    dayBlocks.forEach(b => {
-      if (b.start < groupEnd) {
-        currentGroup.push(b);
-        groupEnd = Math.max(groupEnd, b.end);
-      } else {
-        if (currentGroup.length) groups.push(currentGroup);
-        currentGroup = [b];
-        groupEnd = b.end;
+    // 2. Overlay user's own blocks on top so they can click-to-edit
+    const userBlocks = allBlocks.filter(b => b.cls === 'you');
+    userBlocks.forEach((b, idx) => {
+      const el = document.createElement('div');
+      el.className = `block ${b.cls} animate-in`;
+      el.style.cssText = `
+        top: ${m.headerH + (b.start - GRID_START_H) * CELL_H}px;
+        height: ${(b.end - b.start) * CELL_H - 2}px;
+        left: ${m.tw + b.day * m.cw + 2}px;
+        width: ${(m.cw - 4) * 0.45}px;
+        z-index: 12;
+        animation-delay: ${idx * 18}ms;
+      `;
+      el.innerHTML = `<div class="block-name">${b.label}</div><div class="block-time">${b.sub}</div>`;
+      if (b.srcIdx != null) {
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openBlockPopover(b.srcIdx, el);
+        });
       }
+      grid.appendChild(el);
+      individualEls.push(el);
     });
-    if (currentGroup.length) groups.push(currentGroup);
+  } else {
+    // SINGLE PERSON: show blocks normally at full width
+    allBlocks.forEach((b, idx) => {
+      const el = document.createElement('div');
+      el.className = `block ${b.cls} animate-in`;
+      el.style.cssText = `
+        top: ${m.headerH + (b.start - GRID_START_H) * CELL_H}px;
+        height: ${(b.end - b.start) * CELL_H - 2}px;
+        left: ${m.tw + b.day * m.cw + 2}px;
+        width: ${m.cw - 4}px;
+        z-index: 10;
+        animation-delay: ${idx * 18}ms;
+      `;
+      el.innerHTML = `<div class="block-name">${b.label}</div><div class="block-time">${b.sub}</div>`;
 
-    groups.forEach(group => {
-      const n = group.length;
-      group.forEach((b, i) => {
-        laneInfo.set(b.origIdx, { laneIdx: i, laneCount: n });
-      });
+      if (b.cls === 'you' && b.srcIdx != null) {
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openBlockPopover(b.srcIdx, el);
+        });
+      }
+
+      grid.appendChild(el);
+      individualEls.push(el);
     });
-  });
-
-  allBlocks.forEach((b, idx) => {
-    const lane = laneInfo.get(idx) || { laneIdx: 0, laneCount: 1 };
-    const colW = m.cw - 4;
-    // Staggered overlap: each subsequent block offsets slightly right and narrows
-    const offsetPx = lane.laneCount > 1 ? lane.laneIdx * 18 : 0;
-    const blockW = colW - (lane.laneCount > 1 ? (lane.laneCount - 1) * 12 : 0);
-    const blockLeft = m.tw + b.day * m.cw + 2 + offsetPx;
-
-    const el = document.createElement('div');
-    el.className = `block ${b.cls} animate-in`;
-    el.style.cssText = `
-      top: ${m.headerH + (b.start - GRID_START_H) * CELL_H}px;
-      height: ${(b.end - b.start) * CELL_H - 2}px;
-      left: ${blockLeft}px;
-      width: ${blockW}px;
-      z-index: ${10 + lane.laneIdx};
-      animation-delay: ${idx * 18}ms;
-    `;
-    el.innerHTML = `<div class="block-name">${b.label}</div><div class="block-time">${b.sub}</div>`;
-
-    // Click to edit own blocks
-    if (b.cls === 'you' && b.srcIdx != null) {
-      el.style.cursor = 'pointer';
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openBlockPopover(b.srcIdx, el);
-      });
-    }
-
-    grid.appendChild(el);
-    individualEls.push(el);
-  });
+  }
 }
 
 // ---------- Merge intervals algorithm ----------
@@ -534,20 +546,7 @@ function toggleChip(chip, person) {
   const frCheck = document.querySelector(`.fr-check[data-cls="${person}"]`);
   if (frCheck) frCheck.classList.toggle('on', chip.classList.contains('active'));
 
-  if (mergedMode) {
-    mergedEls.forEach(el => el.remove());
-    mergedEls = [];
-    buildMergedBlocks();
-    mergedEls.forEach(el => {
-      requestAnimationFrame(() => {
-        el.classList.remove('fading-in');
-        el.style.opacity = '1';
-        el.style.transform = 'scaleY(1)';
-      });
-    });
-  } else {
-    buildIndividualBlocks();
-  }
+  buildIndividualBlocks();
   if (freeMode) buildFreeBlocks();
   computeBestMeetupTimes();
 }
@@ -2618,8 +2617,12 @@ function initGridCellClicks() {
       pop.innerHTML = `
         <label>Block Name</label>
         <input type="text" class="pop-label" value="Busy Block" />
-        <label>Day</label>
-        <select class="pop-day">${DAYS.map((d,i) => `<option value="${d}" ${i===dayIdx?'selected':''}>${d}</option>`).join('')}</select>
+        <label>Days</label>
+        <div class="pop-days" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">
+          ${DAYS.map((d,i) => `<label style="display:flex;align-items:center;gap:3px;font-size:11px;font-weight:600;color:var(--text-secondary);cursor:pointer;padding:3px 6px;border:1px solid var(--border-strong);border-radius:4px;user-select:none;">
+            <input type="checkbox" value="${d}" ${i===dayIdx?'checked':''} style="accent-color:var(--accent);margin:0;" />${d.slice(0,3)}
+          </label>`).join('')}
+        </div>
         <label>Time</label>
         <div class="pop-row">
           <input type="time" class="pop-start" value="${toHHMM(startH, 0)}" />
@@ -2636,14 +2639,27 @@ function initGridCellClicks() {
       pop.querySelector('.pop-label').focus();
       pop.querySelector('.pop-label').select();
 
+      // Highlight checked day labels
+      pop.querySelectorAll('.pop-days input[type="checkbox"]').forEach(cb => {
+        const lbl = cb.closest('label');
+        const updateStyle = () => {
+          lbl.style.background = cb.checked ? 'var(--accent-soft)' : '';
+          lbl.style.borderColor = cb.checked ? 'var(--accent)' : 'var(--border-strong)';
+          lbl.style.color = cb.checked ? 'var(--accent)' : 'var(--text-secondary)';
+        };
+        updateStyle();
+        cb.addEventListener('change', updateStyle);
+      });
+
       pop.querySelector('.pop-cancel').onclick = () => pop.remove();
       pop.querySelector('.pop-save').onclick = () => {
         const label = pop.querySelector('.pop-label').value.trim() || 'Busy Block';
-        const selDay = pop.querySelector('.pop-day').value;
+        const checkedDays = Array.from(pop.querySelectorAll('.pop-days input[type="checkbox"]:checked')).map(cb => cb.value);
         const start = pop.querySelector('.pop-start').value;
         const end = pop.querySelector('.pop-end').value;
+        if (!checkedDays.length) { alert('Select at least one day.'); return; }
         if (!start || !end || start >= end) { alert('Start must be before end.'); return; }
-        aBusy.push({ day: selDay, start, end, label });
+        checkedDays.forEach(day => aBusy.push({ day, start, end, label }));
         saveProfile({ silent: true });
         pop.remove();
         renderAll();
@@ -3269,7 +3285,7 @@ document.getElementById('friend-code-display')?.addEventListener('click', functi
 document.getElementById('free-btn')?.addEventListener('click', toggleFreeTime);
 
 // Merge toggle
-document.getElementById('merge-btn')?.addEventListener('click', toggleMerge);
+// Merge button removed — auto-merge when 2+ people active
 
 // Quick actions
 document.getElementById('qa-import')?.addEventListener('click', () => {
@@ -3320,7 +3336,6 @@ document.getElementById('add-friend-btn')?.addEventListener('click', async () =>
 // Resize handler
 window.addEventListener('resize', () => {
   buildIndividualBlocks();
-  if (mergedMode) buildMergedBlocks();
   if (freeMode) buildFreeBlocks();
 });
 
