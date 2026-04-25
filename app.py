@@ -54,6 +54,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
 
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 USERNAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{2,31}$")
+EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 MONGODB_URI = os.environ.get("MONGODB_URI", "").strip()
 MONGODB_DB = os.environ.get("MONGODB_DB", "timesync").strip() or "timesync"
@@ -107,6 +108,10 @@ def ensure_indexes():
     if ucol is not None:
         ucol.create_index("username", unique=True)
         ucol.create_index("friendCode", unique=True)
+        # Sparse so legacy users without an email don't violate uniqueness
+        ucol.create_index("email", unique=True, sparse=True)
+        # Password reset tokens index for lookup + automatic expiry
+        ucol.create_index("resetToken", sparse=True)
     _indexes_initialized = True
 
 
@@ -126,11 +131,43 @@ def generate_friend_code(length: int = 6) -> str:
     return "".join(random.choices(FRIEND_CODE_CHARS, k=length))
 
 
+def normalize_email(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def derive_username_from_email(email: str) -> str:
+    """Generate a unique internal username from an email address.
+
+    Strips the local part (before @), keeps only allowed chars, ensures
+    uniqueness against existing users by appending random suffix on collision.
+    """
+    base = re.sub(r"[^a-z0-9_-]", "", normalize_email(email).split("@", 1)[0])
+    base = re.sub(r"^[-_]+", "", base) or "user"
+    if len(base) < 3:
+        base = (base + "user")[:8]
+    base = base[:24]
+
+    col = users_collection()
+    if col is None:
+        return base
+
+    candidate = base
+    if not col.find_one({"username": candidate}):
+        return candidate
+    for _ in range(20):
+        suffix = "".join(random.choices(string.digits, k=4))
+        candidate = f"{base}{suffix}"[:32]
+        if not col.find_one({"username": candidate}):
+            return candidate
+    return f"{base}{uuid4().hex[:6]}"[:32]
+
+
 if LoginManager is not None:
     class User(UserMixin):
         def __init__(self, doc):
             self.id = doc["username"]
             self.username = doc["username"]
+            self.email = doc.get("email", "")
             self.display_name = doc.get("displayName", doc["username"])
             self.friend_code = doc.get("friendCode", "")
 
@@ -460,6 +497,88 @@ def serve_prototype(filename):
     return send_from_directory("prototypes", filename)
 
 
+# ---------- Legal pages ----------
+
+LEGAL_UPDATED = "April 24, 2026"
+
+TERMS_BODY = """
+<p>Welcome to TimeSync. By creating an account or using the service, you agree to these Terms of Service. TimeSync is a student-built project; please use it responsibly.</p>
+
+<h2>1. Account Eligibility</h2>
+<p>You must be at least 13 years old to create an account. You are responsible for keeping your password secure and for any activity that happens under your account.</p>
+
+<h2>2. Acceptable Use</h2>
+<ul>
+  <li>Don't use TimeSync for anything illegal or harmful.</li>
+  <li>Don't try to break, scrape, or overload the service.</li>
+  <li>Don't impersonate others or share schedules that aren't yours.</li>
+  <li>Don't upload images containing content you don't have rights to.</li>
+</ul>
+
+<h2>3. Your Content</h2>
+<p>You retain ownership of the schedule data, busy blocks, notes, and screenshots you upload. You grant TimeSync a limited license to store and display this content so the app can function (e.g., showing your schedule to friends you've explicitly added).</p>
+
+<h2>4. Service Availability</h2>
+<p>TimeSync is provided "as is" with no guarantee of uptime, accuracy, or fitness for any particular purpose. We may change features, pause, or shut down the service at any time.</p>
+
+<h2>5. Termination</h2>
+<p>We may suspend or terminate accounts that violate these terms. You can delete your account at any time by contacting us.</p>
+
+<h2>6. Limitation of Liability</h2>
+<p>To the fullest extent allowed by law, TimeSync and its developers are not liable for any indirect, incidental, or consequential damages arising from your use of the service.</p>
+
+<h2>7. Changes</h2>
+<p>We may update these terms occasionally. Continued use of the service after changes means you accept the new terms.</p>
+
+<h2>8. Contact</h2>
+<p>Questions? Email us at <a href="mailto:hello@timesync.app">hello@timesync.app</a>.</p>
+"""
+
+PRIVACY_BODY = """
+<p>This Privacy Policy explains what information TimeSync collects, how it's used, and the choices you have. We try to keep this short and honest.</p>
+
+<h2>1. What We Collect</h2>
+<ul>
+  <li><strong>Account info</strong> &mdash; your email, display name, and a hashed password (we never store passwords in plain text).</li>
+  <li><strong>Schedule data</strong> &mdash; busy blocks, free time, notes, colors, and remote/online flags you create.</li>
+  <li><strong>Friend connections</strong> &mdash; the friend codes you've added and the schedules you've imported.</li>
+  <li><strong>Optional uploads</strong> &mdash; if you import a schedule via image, we run OCR locally on the server and only keep the parsed text long enough to extract blocks.</li>
+  <li><strong>Basic logs</strong> &mdash; standard server logs (IP, user agent, error traces) used to debug and protect the service.</li>
+</ul>
+
+<h2>2. How We Use It</h2>
+<p>To provide the core features of TimeSync: showing your schedule, computing free time with friends, sending password reset emails, and improving the service.</p>
+
+<h2>3. Sharing</h2>
+<p>We don't sell your data. We don't run ads. Your schedule is only visible to you and the friends you've explicitly shared a code with. We may share data with the third-party services we rely on (e.g., MongoDB Atlas for storage, AWS for hosting), strictly to operate the app.</p>
+
+<h2>4. Data Retention</h2>
+<p>We keep your account and schedule data until you delete your account or ask us to delete it.</p>
+
+<h2>5. Your Rights</h2>
+<p>You can update or delete your account at any time. To request your data or have it removed, email <a href="mailto:hello@timesync.app">hello@timesync.app</a>.</p>
+
+<h2>6. Security</h2>
+<p>We take reasonable steps to protect your data, including hashed passwords and HTTPS in transit. No service is 100% secure, so please use a strong password and don't reuse one from another site.</p>
+
+<h2>7. Changes</h2>
+<p>If this policy changes meaningfully, we'll update the date at the top and, when appropriate, notify you in the app.</p>
+
+<h2>8. Contact</h2>
+<p>Questions or concerns? Email <a href="mailto:hello@timesync.app">hello@timesync.app</a>.</p>
+"""
+
+
+@app.get("/terms")
+def terms_page():
+    return render_template("legal.html", heading="Terms of Service", body=TERMS_BODY, updated=LEGAL_UPDATED)
+
+
+@app.get("/privacy")
+def privacy_page():
+    return render_template("legal.html", heading="Privacy Policy", body=PRIVACY_BODY, updated=LEGAL_UPDATED)
+
+
 # ---------- Auth routes ----------
 
 @app.get("/api/auth/me")
@@ -470,6 +589,7 @@ def auth_me():
         return jsonify({
             "ok": True,
             "username": current_user.username,
+            "email": current_user.email,
             "displayName": current_user.display_name,
             "friendCode": current_user.friend_code,
         })
@@ -486,26 +606,30 @@ def auth_signup():
         return unavailable
 
     data = request.get_json(force=True) or {}
-    username = normalize_user_key(data.get("username", ""))
+    email = normalize_email(data.get("email", ""))
     password = (data.get("password") or "").strip()
     display_name = (data.get("displayName") or "").strip()
 
-    if not USERNAME_PATTERN.match(username):
-        return jsonify({"ok": False, "error": "Username must be 3-32 chars: lowercase letters, numbers, '-' or '_'."}), 400
+    if not EMAIL_PATTERN.match(email):
+        return jsonify({"ok": False, "error": "Please enter a valid email address."}), 400
     if len(password) < 6:
         return jsonify({"ok": False, "error": "Password must be at least 6 characters."}), 400
+    if not display_name:
+        return jsonify({"ok": False, "error": "Display name is required."}), 400
 
     col = users_collection()
     try:
         ensure_indexes()
-        if col.find_one({"username": username}):
-            return jsonify({"ok": False, "error": "Username already taken."}), 409
+        if col.find_one({"email": email}):
+            return jsonify({"ok": False, "error": "An account with that email already exists."}), 409
 
+        username = derive_username_from_email(email)
         friend_code = generate_friend_code()
         user_doc = {
             "username": username,
-            "passwordHash": generate_password_hash(password),
-            "displayName": display_name or username,
+            "email": email,
+            "passwordHash": generate_password_hash(password, method="pbkdf2:sha256"),
+            "displayName": display_name,
             "friendCode": friend_code,
             "createdAt": now_iso(),
         }
@@ -517,6 +641,7 @@ def auth_signup():
         return jsonify({
             "ok": True,
             "username": username,
+            "email": email,
             "displayName": user.display_name,
             "friendCode": friend_code,
         })
@@ -534,25 +659,29 @@ def auth_login():
         return unavailable
 
     data = request.get_json(force=True) or {}
-    username = normalize_user_key(data.get("username", ""))
+    identifier = (data.get("email") or data.get("username") or "").strip().lower()
     password = (data.get("password") or "").strip()
 
-    if not username or not password:
-        return jsonify({"ok": False, "error": "Username and password are required."}), 400
+    if not identifier or not password:
+        return jsonify({"ok": False, "error": "Email and password are required."}), 400
 
     col = users_collection()
     try:
         ensure_indexes()
-        user_doc = col.find_one({"username": username})
+        # Look up by email first, fall back to username for legacy accounts
+        user_doc = col.find_one({"email": identifier})
+        if not user_doc:
+            user_doc = col.find_one({"username": identifier})
         if not user_doc or not check_password_hash(user_doc["passwordHash"], password):
-            return jsonify({"ok": False, "error": "Invalid username or password."}), 401
+            return jsonify({"ok": False, "error": "Invalid email or password."}), 401
 
         user = User(user_doc)
         login_user(user, remember=True)
 
         return jsonify({
             "ok": True,
-            "username": username,
+            "username": user.username,
+            "email": user.email,
             "displayName": user.display_name,
             "friendCode": user.friend_code,
         })
@@ -566,6 +695,146 @@ def auth_logout():
         return jsonify({"ok": False, "error": "flask-login not installed."}), 500
     logout_user()
     return jsonify({"ok": True})
+
+
+# ---------- Password reset flow ----------
+
+import hashlib
+import secrets
+from datetime import timedelta
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _send_password_reset_email(email: str, reset_url: str) -> None:
+    """Deliver the password reset link.
+
+    Default behavior: log the link to stdout/server log so the developer can
+    relay it manually. To enable real email, set EMAIL_RESET_WEBHOOK_URL to
+    a service endpoint that accepts {"to", "subject", "body"} (e.g. Resend
+    proxy or your own SMTP wrapper).
+    """
+    webhook = os.environ.get("EMAIL_RESET_WEBHOOK_URL", "").strip()
+    body = (
+        f"Hi,\n\nSomeone requested a password reset for your TimeSync account.\n"
+        f"If that was you, click the link below to choose a new password (valid for 1 hour):\n\n"
+        f"{reset_url}\n\n"
+        f"If you didn't request this, you can safely ignore this email.\n"
+    )
+    if webhook:
+        try:
+            import urllib.request, json as _json
+            req = urllib.request.Request(
+                webhook,
+                data=_json.dumps({
+                    "to": email,
+                    "subject": "Reset your TimeSync password",
+                    "body": body,
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            urllib.request.urlopen(req, timeout=5).read()
+        except Exception as err:
+            app.logger.warning("Password reset webhook failed: %s", err)
+    # Always log so a human can deliver it manually if email isn't wired up
+    app.logger.warning("PASSWORD_RESET_LINK email=%s url=%s", email, reset_url)
+
+
+@app.post("/api/auth/forgot-password")
+def auth_forgot_password():
+    if LoginManager is None:
+        return jsonify({"ok": False, "error": "flask-login not installed."}), 500
+
+    unavailable = db_unavailable_response()
+    if unavailable:
+        return unavailable
+
+    data = request.get_json(force=True) or {}
+    email = normalize_email(data.get("email", ""))
+    if not EMAIL_PATTERN.match(email):
+        return jsonify({"ok": False, "error": "Please enter a valid email address."}), 400
+
+    col = users_collection()
+    try:
+        ensure_indexes()
+        user_doc = col.find_one({"email": email})
+        # Always return success to avoid leaking which emails exist
+        if user_doc:
+            raw_token = secrets.token_urlsafe(32)
+            expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+            col.update_one(
+                {"_id": user_doc["_id"]},
+                {"$set": {
+                    "resetToken": _hash_token(raw_token),
+                    "resetTokenExpires": expires_at,
+                }},
+            )
+            scheme = "https" if request.is_secure or request.headers.get("X-Forwarded-Proto") == "https" else "http"
+            host = request.host
+            reset_url = f"{scheme}://{host}/reset-password?token={raw_token}"
+            _send_password_reset_email(email, reset_url)
+        return jsonify({
+            "ok": True,
+            "message": "If that email exists, a reset link has been sent.",
+        })
+    except PyMongoError as err:
+        return jsonify({"ok": False, "error": str(err)}), 500
+
+
+@app.get("/reset-password")
+def reset_password_page():
+    return render_template("reset_password.html")
+
+
+@app.post("/api/auth/reset-password")
+def auth_reset_password():
+    if LoginManager is None:
+        return jsonify({"ok": False, "error": "flask-login not installed."}), 500
+
+    unavailable = db_unavailable_response()
+    if unavailable:
+        return unavailable
+
+    data = request.get_json(force=True) or {}
+    token = (data.get("token") or "").strip()
+    new_password = (data.get("password") or "").strip()
+
+    if not token:
+        return jsonify({"ok": False, "error": "Reset token missing."}), 400
+    if len(new_password) < 6:
+        return jsonify({"ok": False, "error": "Password must be at least 6 characters."}), 400
+
+    col = users_collection()
+    try:
+        ensure_indexes()
+        user_doc = col.find_one({"resetToken": _hash_token(token)})
+        if not user_doc:
+            return jsonify({"ok": False, "error": "This reset link is invalid or has already been used."}), 400
+
+        expires_at_str = user_doc.get("resetTokenExpires")
+        try:
+            expires_at = datetime.fromisoformat(expires_at_str) if expires_at_str else None
+        except ValueError:
+            expires_at = None
+        if not expires_at or expires_at < datetime.now(timezone.utc):
+            col.update_one(
+                {"_id": user_doc["_id"]},
+                {"$unset": {"resetToken": "", "resetTokenExpires": ""}},
+            )
+            return jsonify({"ok": False, "error": "This reset link has expired. Please request a new one."}), 400
+
+        col.update_one(
+            {"_id": user_doc["_id"]},
+            {
+                "$set": {"passwordHash": generate_password_hash(new_password, method="pbkdf2:sha256")},
+                "$unset": {"resetToken": "", "resetTokenExpires": ""},
+            },
+        )
+        return jsonify({"ok": True, "message": "Password updated. You can now sign in."})
+    except PyMongoError as err:
+        return jsonify({"ok": False, "error": str(err)}), 500
 
 
 @app.post("/compare")

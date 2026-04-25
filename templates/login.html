@@ -414,29 +414,27 @@ body {
     <!-- Sign In -->
     <div class="tab-content active" id="tab-signin">
       <div class="form-group">
-        <label for="auth-signin-username">Username</label>
-        <input id="auth-signin-username" type="text" placeholder="your-username" autocomplete="username" />
+        <label for="auth-signin-email">Email</label>
+        <input id="auth-signin-email" type="email" placeholder="you@example.com" autocomplete="email" />
       </div>
       <div class="form-group">
         <label for="auth-signin-password">Password</label>
         <input id="auth-signin-password" type="password" placeholder="••••••••" autocomplete="current-password" />
       </div>
-      <a class="forgot">Forgot password?</a>
+      <a class="forgot" id="forgot-link" href="#">Forgot password?</a>
       <button id="auth-signin-btn" class="login-submit-btn" type="button">Sign In</button>
       <div class="form-status" id="auth-status"></div>
     </div>
 
     <!-- Sign Up -->
     <div class="tab-content" id="tab-signup">
-      <div class="form-group row">
-        <div>
-          <label for="auth-signup-username">Username</label>
-          <input id="auth-signup-username" type="text" placeholder="choose-a-username" autocomplete="username" />
-        </div>
-        <div>
-          <label for="auth-signup-display">Display Name</label>
-          <input id="auth-signup-display" type="text" placeholder="Your Name" autocomplete="name" />
-        </div>
+      <div class="form-group">
+        <label for="auth-signup-email">Email</label>
+        <input id="auth-signup-email" type="email" placeholder="you@example.com" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label for="auth-signup-display">Display Name</label>
+        <input id="auth-signup-display" type="text" placeholder="Your Name" autocomplete="name" />
       </div>
       <div class="form-group">
         <label for="auth-signup-password">Password</label>
@@ -450,9 +448,21 @@ body {
       <div class="form-status" id="signup-status"></div>
     </div>
 
+    <!-- Forgot Password -->
+    <div class="tab-content" id="tab-forgot">
+      <div class="form-group">
+        <label for="auth-forgot-email">Email</label>
+        <input id="auth-forgot-email" type="email" placeholder="you@example.com" autocomplete="email" />
+        <p style="font-size:12px;color:var(--text-secondary);margin-top:6px;line-height:1.5;">Enter the email tied to your account. If we find a match, we'll send you a reset link.</p>
+      </div>
+      <button id="auth-forgot-btn" class="login-submit-btn" type="button">Send reset link</button>
+      <div class="form-status" id="forgot-status"></div>
+      <a class="forgot" id="back-to-signin" href="#" style="margin-top:14px;display:block;">Back to sign in</a>
+    </div>
+
     <div class="form-footer">
       By continuing, you agree to our
-      <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>
+      <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>
     </div>
   </div>
 </div>
@@ -464,31 +474,44 @@ body {
   const title = document.querySelector('.form-card-title');
   const sub = document.querySelector('.form-card-sub');
 
+  function showTab(target) {
+    activeTab = target;
+    tabs.forEach(function(t) {
+      t.classList.toggle('active', t.getAttribute('data-tab') === target);
+    });
+    document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+    var pane = document.getElementById('tab-' + target);
+    if (pane) pane.classList.add('active');
+
+    if (target === 'signin') {
+      title.textContent = 'Welcome back';
+      sub.textContent = 'Sign in to your account to continue';
+    } else if (target === 'signup') {
+      title.textContent = 'Create an account';
+      sub.textContent = 'Get started -- it only takes a moment';
+    } else if (target === 'forgot') {
+      title.textContent = 'Reset your password';
+      sub.textContent = 'We\u2019ll email you a link to set a new one';
+    }
+    clearStatus();
+  }
+
   tabs.forEach(function(tab) {
     tab.addEventListener('click', function() {
-      const target = this.getAttribute('data-tab');
-      activeTab = target;
-      tabs.forEach(function(t) { t.classList.remove('active'); });
-      this.classList.add('active');
-      document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
-      document.getElementById('tab-' + target).classList.add('active');
-
-      if (target === 'signin') {
-        title.textContent = 'Welcome back';
-        sub.textContent = 'Sign in to your account to continue';
-      } else {
-        title.textContent = 'Create an account';
-        sub.textContent = 'Get started -- it only takes a moment';
-      }
-      clearStatus();
+      showTab(this.getAttribute('data-tab'));
     });
   });
 
+  var forgotLink = document.getElementById('forgot-link');
+  if (forgotLink) forgotLink.addEventListener('click', function(e) { e.preventDefault(); showTab('forgot'); });
+  var backToSignin = document.getElementById('back-to-signin');
+  if (backToSignin) backToSignin.addEventListener('click', function(e) { e.preventDefault(); showTab('signin'); });
+
   function clearStatus() {
-    var s1 = document.getElementById('auth-status');
-    var s2 = document.getElementById('signup-status');
-    if (s1) s1.textContent = '';
-    if (s2) s2.textContent = '';
+    ['auth-status', 'signup-status', 'forgot-status'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = '';
+    });
   }
 
   function setStatus(id, msg, isOk) {
@@ -498,14 +521,20 @@ body {
     el.className = 'form-status' + (isOk ? ' ok' : '');
   }
 
-  // Sign In
+  function isEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+
+  // Sign In (by email)
   document.getElementById('auth-signin-btn').addEventListener('click', function() {
     var btn = this;
-    var username = document.getElementById('auth-signin-username').value.trim();
+    var email = document.getElementById('auth-signin-email').value.trim().toLowerCase();
     var password = document.getElementById('auth-signin-password').value;
 
-    if (!username || !password) {
-      setStatus('auth-status', 'Username and password are required.', false);
+    if (!email || !password) {
+      setStatus('auth-status', 'Email and password are required.', false);
+      return;
+    }
+    if (!isEmail(email)) {
+      setStatus('auth-status', 'Please enter a valid email address.', false);
       return;
     }
 
@@ -515,7 +544,7 @@ body {
     fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username, password: password })
+      body: JSON.stringify({ email: email, password: password })
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -538,13 +567,17 @@ body {
   // Sign Up
   document.getElementById('auth-signup-btn').addEventListener('click', function() {
     var btn = this;
-    var username = document.getElementById('auth-signup-username').value.trim();
+    var email = document.getElementById('auth-signup-email').value.trim().toLowerCase();
     var displayName = document.getElementById('auth-signup-display').value.trim();
     var password = document.getElementById('auth-signup-password').value;
     var confirm = document.getElementById('auth-signup-confirm').value;
 
-    if (!username) {
-      setStatus('signup-status', 'Username is required.', false);
+    if (!isEmail(email)) {
+      setStatus('signup-status', 'Please enter a valid email address.', false);
+      return;
+    }
+    if (!displayName) {
+      setStatus('signup-status', 'Display name is required.', false);
       return;
     }
     if (password.length < 6) {
@@ -563,9 +596,9 @@ body {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        username: username,
+        email: email,
         password: password,
-        displayName: displayName || username
+        displayName: displayName
       })
     })
     .then(function(r) { return r.json(); })
@@ -582,6 +615,38 @@ body {
     .catch(function(err) {
       setStatus('signup-status', 'Network error. Please try again.', false);
       btn.textContent = 'Create Account';
+      btn.disabled = false;
+    });
+  });
+
+  // Forgot Password
+  document.getElementById('auth-forgot-btn').addEventListener('click', function() {
+    var btn = this;
+    var email = document.getElementById('auth-forgot-email').value.trim().toLowerCase();
+    if (!isEmail(email)) {
+      setStatus('forgot-status', 'Please enter a valid email address.', false);
+      return;
+    }
+    btn.textContent = 'Sending...';
+    btn.disabled = true;
+    fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        setStatus('forgot-status', data.message || 'If that email exists, a reset link has been sent.', true);
+      } else {
+        setStatus('forgot-status', data.error || 'Could not send reset email.', false);
+      }
+      btn.textContent = 'Send reset link';
+      btn.disabled = false;
+    })
+    .catch(function() {
+      setStatus('forgot-status', 'Network error. Please try again.', false);
+      btn.textContent = 'Send reset link';
       btn.disabled = false;
     });
   });
