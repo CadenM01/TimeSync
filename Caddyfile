@@ -1,0 +1,33 @@
+# TimeSync reverse proxy.
+#
+# The {$TIMESYNC_DOMAIN} placeholder is substituted at runtime from the
+# Caddy systemd environment file (/etc/caddy/timesync.env) which reads it
+# from your project .env. Set:
+#
+#     TIMESYNC_DOMAIN=timesync.example.com
+#
+# Caddy automatically requests and renews a Let's Encrypt certificate as
+# long as DNS for that domain points at this server's public IP and ports
+# 80 + 443 are reachable from the internet.
+
+{$TIMESYNC_DOMAIN} {
+    encode zstd gzip
+
+    # Long cache for static assets, no cache for HTML
+    @static path /static/* /favicon.ico
+    header @static Cache-Control "public, max-age=86400"
+
+    # Forward the original scheme/host to Flask so url_for() builds https links
+    reverse_proxy 127.0.0.1:8080 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+
+    # Sensible security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+}

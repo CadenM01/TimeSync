@@ -1746,4 +1746,9 @@ def api_parse_schedule_image():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
     debug = os.environ.get("FLASK_DEBUG", "").strip().lower() in {"1", "true", "yes"}
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    # Default to all interfaces in dev (so the laptop preview works) but bind
+    # to loopback in production so only the local Caddy reverse proxy can
+    # reach Flask. Set HOST=0.0.0.0 to override.
+    default_host = "0.0.0.0" if debug else "127.0.0.1"
+    host = os.environ.get("HOST", default_host)
+    app.run(host=host, port=port, debug=debug)
